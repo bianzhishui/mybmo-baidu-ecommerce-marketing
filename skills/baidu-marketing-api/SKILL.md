@@ -189,6 +189,10 @@ python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
   --execute --confirm cfa5cd773f5bdf99
 ```
 
+**「把报文给用户核对」不是随手发段文字**：在有交互卡片的环境里，要用确认卡片让用户点选
+（账户、动作、条数、关键字段、不可逆提示都要在同一屏），点「确认执行」之后才走第二步。
+细则见 `agents/MyBMO.md` 的「写操作铁律」。
+
 **为什么必须有 digest**：它是报文内容的指纹。
 
 - 没有 digest → 说明没预览过 → 直接拒绝（退出码 4）
