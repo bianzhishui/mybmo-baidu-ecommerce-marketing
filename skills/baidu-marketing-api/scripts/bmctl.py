@@ -28,8 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from bmclient import BaiduClient, load_credential  # noqa: E402
-from bmclient import auth, config, oauthserver, render  # noqa: E402
+from bmclient import BaiduClient, auth, config, load_credential, oauthserver, render  # noqa: E402
 from bmclient.errors import (  # noqa: E402
     BaiduApiError,
     CredentialError,

@@ -34,7 +34,7 @@ _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 def default_state(app_id, developer_uid):
     """百度约定的默认 state：md5(appId_开发者uid) 32 位小写。"""
-    raw = f"{app_id}_{developer_uid}".encode("utf-8")
+    raw = f"{app_id}_{developer_uid}".encode()
     return hashlib.md5(raw).hexdigest()
 
 

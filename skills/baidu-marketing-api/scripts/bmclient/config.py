@@ -181,11 +181,12 @@ def delete_account(alias):
     path = account_path(alias)
     if not path.exists():
         raise ValueError(f"账户 {alias} 不存在")
+    # 必须在 unlink 之前判断：删掉文件后 default_alias() 会因账户不存在而返回空串，
+    # 导致默认指向永远不会被清理。
+    was_default = default_alias() == alias
     path.unlink()
-    if default_alias() == alias:
-        marker = home_dir() / DEFAULT_ALIAS_FILE
-        if marker.exists():
-            marker.unlink()
+    if was_default:
+        (home_dir() / DEFAULT_ALIAS_FILE).unlink(missing_ok=True)
     return path
 
 

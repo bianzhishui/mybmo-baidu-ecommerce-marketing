@@ -1,0 +1,35 @@
+[project]
+name = "mybmo-baidu-ecommerce-marketing"
+version = "1.6.3"
+description = "WorkBuddy plugin: Baidu e-commerce marketing officer, backed by real keyword data from the Baidu Marketing Open Platform API"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []  # 运行时零第三方依赖：插件由 WorkBuddy 用系统 python3 直接运行，不经过安装
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.17",
+]
+
+[tool.uv]
+# 虚拟项目：不打包、不安装。插件运行靠 bmctl.py 里的 sys.path 注入，
+# 加 build-system 反而会让 "零依赖" 的承诺变形。
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = [".venv", "skills/baidu-marketing-api/references"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bmclient"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["skills/baidu-marketing-api/scripts"]
+addopts = "-ra"

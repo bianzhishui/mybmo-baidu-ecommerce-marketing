@@ -197,22 +197,34 @@ mybmo-baidu-ecommerce-marketing/
 │           ├── errors.py           # 错误码释义
 │           ├── render.py           # JSON / Markdown 输出
 │           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制
+├── tests/                          # pytest：渲染 / 错误码 / 凭据 / CLI 冒烟
+├── pyproject.toml                  # uv 项目配置（虚拟项目，dev 依赖 pytest、ruff）
+├── uv.lock                         # 开发依赖锁文件
+├── .python-version                 # 锁定 Python 3.13
 ├── avatars/expert.png
 └── README.md
 ```
 
 ## 本地开发
 
-准备 Python 环境（`uv`，仓库已锁 Python 3.13，无第三方依赖）：
+用 `uv` 管理开发环境。**运行时零依赖**——插件由 WorkBuddy 用系统 `python3` 直接执行 `bmctl.py`，
+不经过安装；`pytest` / `ruff` 只在开发时用。
 
 ```bash
-uv venv            # 创建 .venv，读取 .python-version
-source .venv/bin/activate
-
-python skills/baidu-marketing-api/scripts/bmctl.py accounts list
+uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
+uv run pytest           # 34 个用例：渲染、错误码、凭据管理、CLI 冒烟
+uv run ruff check .     # 规则集见 pyproject.toml
+uv run ruff format .    # 可选，会重排未格式化的文件
 ```
 
-修改源码后，需要同步到 WorkBuddy 的插件目录并让缓存重建才能生效：
+测试通过 `BM_HOME` 环境变量把凭据目录重定向到临时目录，**不会读写你真实的
+`~/.workbuddy/baidu-marketing/`**。
+
+> `pyproject.toml` 标了 `package = false`（虚拟项目）：不打包、不安装。
+> 因为插件靠 `bmctl.py` 里的 `sys.path` 注入加载 `bmclient`，加 build-system 反而会
+> 让「零依赖」的承诺变形。
+
+改完源码后，需要同步到 WorkBuddy 的插件目录并让缓存重建才能生效：
 
 ```bash
 # 1. 同步到专家市场目录
@@ -229,7 +241,7 @@ rsync -a --delete \
 ## 安全与隐私
 
 - **凭据不入库**：令牌只存在本机 `~/.workbuddy/baidu-marketing/accounts/`，`.gitignore` 已排除 `accounts/`、`*.token`、`.env`。
-- **无第三方依赖**：纯 Python 标准库，不引入任何外部包，减少供应链面。
+- **运行时零依赖**：纯 Python 标准库，不引入任何外部包（`pytest` / `ruff` 仅开发时使用），减少供应链面。
 - **写操作默认关闭**：跨账户复制不加 `--execute` 只打印；权限不足会被本地拦住（退出码 3），不会打出半截请求污染目标账户。
 - **回调服务只监听 `127.0.0.1`**，公网靠隧道转发，不做 AES 验签而改为校验 state 的 base 部分。
 
