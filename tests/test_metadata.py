@@ -72,3 +72,66 @@ def test_readme_has_no_hardcoded_file_count():
 def test_runtime_json_ships_with_the_package():
     """runtime.json 必须落在分发目录里，否则用户拆包看不到环境要求。"""
     assert (ROOT / "skills" / "baidu-marketing-api" / "runtime.json").is_file()
+
+
+# ---------- 执行方式口径（uv run） ----------
+
+
+FORBIDDEN_RUNNERS = (
+    "python3 scripts/bmctl.py",
+    "python3 <skill>/scripts/bmctl.py",
+    "py -3 scripts",
+    "py -3 <skill>",
+)
+
+
+def test_docs_only_use_uv_run():
+    """命令半改不改最危险：同一会话混用 `python3` 与 `uv run` 会走不同解释器。"""
+    offenders = []
+    for path in _markdown_files():
+        text = path.read_text(encoding="utf-8")
+        for token in FORBIDDEN_RUNNERS:
+            if token in text:
+                offenders.append(f"{path.relative_to(ROOT)}: 仍出现 {token!r}")
+        if "scripts/bmctl.py" in text and "uv run" not in text:
+            offenders.append(f"{path.relative_to(ROOT)}: 提到 bmctl.py 却没有 uv run")
+
+    assert offenders == [], "\n".join(offenders)
+
+
+def test_skill_and_agent_document_uv_install():
+    skill = (ROOT / "skills" / "baidu-marketing-api" / "SKILL.md").read_text(encoding="utf-8")
+    agent = (ROOT / "agents" / "MyBMO.md").read_text(encoding="utf-8")
+
+    assert "uv --version" in skill
+    assert "astral.sh/uv" in skill, "必须给出官方安装地址，不能让用户自己搜"
+    assert "uv run" in agent
+    assert "astral.sh/uv" in agent
+
+
+# ---------- 打包规则 ----------
+
+
+def _rsync_block():
+    """只取 rsync 命令行本身——注释里也提到 --include，全文搜索会误判。"""
+    script = (ROOT / "tools" / "build-zip.sh").read_text(encoding="utf-8")
+    start = script.index("rsync -a")
+    end = script.index('"$ROOT/" "$TARGET/"', start)
+    return script[start:end]
+
+
+def test_build_zip_excludes_precede_includes():
+    """rsync 首条匹配即定：exclude 放到第一个 --include 之后会全部失效。"""
+    block = _rsync_block()
+    first_include = block.index("--include")
+
+    for token in ("'__pycache__/'", "'.venv/'", "'*.so'", "'*.pyd'", "'*.pyc'"):
+        assert block.index(token) < first_include, f"{token} 必须在第一个 --include 之前"
+
+
+def test_build_zip_ends_with_exclude_all():
+    """白名单的最后一条必须是 --exclude '*'，且只能有一条。"""
+    block = _rsync_block()
+
+    assert block.count("--exclude '*'") == 1
+    assert block.index("--exclude '*'") > block.index("--include '/README.md'")

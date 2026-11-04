@@ -90,14 +90,14 @@ refreshToken 过期后只能重新走完整授权流程，没有别的办法。
 ### 4.2 起服务（推荐多账户）
 
 ```bash
-python3 scripts/bmctl.py auth serve --port 8080 \
+uv run scripts/bmctl.py auth serve --port 8080 \
   --app-id <AppID> --developer-uid <开发者uid> --secret-key <SecretKey> --wait 900
 ```
 
 服务启动后为每个账户生成独立链接，分头发出去：
 
 ```bash
-python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid> \
+uv run scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid> \
   --callback https://<公网地址>/oauth/callback --alias acc_a
 ```
 
@@ -118,7 +118,7 @@ python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者ui
 已经有 authCode 时（比如从 webhook 页面上复制的）：
 
 ```bash
-python3 scripts/bmctl.py auth exchange --code <authCode> \
+uv run scripts/bmctl.py auth exchange --code <authCode> \
   --app-id <AppID> --secret-key <SecretKey> \
   --user-id <userId> --user-name "<账户中文名>" --alias acc_a
 ```
@@ -164,7 +164,7 @@ python3 scripts/bmctl.py auth exchange --code <authCode> \
 ```
 
 ```bash
-python3 scripts/bmctl.py auth serve --apps-file ~/.workbuddy/baidu-marketing/apps.json --wait 900
+uv run scripts/bmctl.py auth serve --apps-file ~/.workbuddy/baidu-marketing/apps.json --wait 900
 ```
 
 每个应用有自己的 base（`md5(appId_开发者uid)`），服务按回调 state 的前缀定位应用，
@@ -195,8 +195,8 @@ python3 scripts/bmctl.py auth serve --apps-file ~/.workbuddy/baidu-marketing/app
 ### 4.7 验证
 
 ```bash
-python3 scripts/bmctl.py --account acc_a auth status
-python3 scripts/bmctl.py --account acc_a kr expand --seed "测试" --limit 1
+uv run scripts/bmctl.py --account acc_a auth status
+uv run scripts/bmctl.py --account acc_a kr expand --seed "测试" --limit 1
 ```
 
 两条都通过才算接入完成。只跑第一条不够——凭据写对不等于权限够。

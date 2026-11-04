@@ -27,62 +27,71 @@ description_en: |
 把「凭经验估」换成「用真实数据算」。所有关键词结论都应基于关键词规划师返回的
 搜索量、竞争度、推荐出价，而不是凭空给数字。
 
-底层是纯标准库实现的 Python 客户端，零第三方依赖，要求 **Python 3.9+**，
-macOS / Linux / Windows 三平台通用。
+纯标准库实现（运行时零第三方依赖），由 **`uv` 执行**：
+`uv` 读脚本头部的内联元数据（PEP 723）自动准备隔离环境并选解释器，三平台同一条命令。
 
 ## 零、首次自检
 
-### 先确定用哪个解释器
+### 先确认 uv 可用
 
-命令里的 `python3` 只对 macOS / Linux 有效。**Windows 上没有 `python3.exe`**，
-照抄会得到"不是内部或外部命令"。开工前先探一次，把本会话要用的写法定下来：
+```bash
+uv --version
+```
 
-| 顺序 | 命令 | 适用 |
-|---|---|---|
-| 1 | `python3 --version` | macOS / Linux |
-| 2 | `py -3 --version` | Windows（官方启动器，优先用这个） |
-| 3 | `python --version` | Windows 没有 `py` 时的兜底 |
+- 三平台**同一条命令**，不再有 `python3` / `py -3` 的选择题
+- 报 `command not found` / `'uv' 不是内部或外部命令`（退出码 127）= 没装 uv。
+  把官方安装命令给用户执行，**不要替他装，也不要改用 `pip install` 装依赖**
+  - macOS / Linux：`curl -LsSf https://astral.sh/uv/install.sh | sh`
+  - Windows：`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- 通了以后，本会话所有调用统一写成 `uv run <技能目录>/scripts/bmctl.py <子命令>`；
+  路径含空格时整体加引号
 
-哪条成功就用哪条，**本会话后续所有 `scripts/bmctl.py` 调用统一替换**。
-三条都失败 = 机器上没有 Python；版本低于 3.9 时脚本会直接给出中文提示并**退出码 6**。
-路径含空格时给脚本路径加引号。
+三个使用细节：
+
+1. **首次运行慢几秒**是在建隔离环境（缓存在 `uv cache dir`，之后复用），不是卡死。
+   uv 的进度提示走 **stderr**，脚本的 JSON 走 **stdout**——别把 stderr 当错误。
+2. **参数位置**：`uv` 自己的选项只能写在脚本路径**之前**，路径之后的参数全归脚本。
+   `uv run --help` 是 uv 的帮助，`uv run bmctl.py --help` 才是本工具的。
+3. **降级**：仅当 uv 装不上、且机器已有 Python 3.9+ 时才用 `python3 <路径>/scripts/bmctl.py`，
+   行为完全一致。**退出码 6 只会出现在这条降级路径上**。
 
 ### 再检查账户
 
 涉及取数时，先跑这一条：
 
 ```bash
-python3 scripts/bmctl.py accounts list
+uv run scripts/bmctl.py accounts list
 ```
 
 - 有账户且 `usable: true` → 直接干活，用户不关心鉴权
 - 提示"还没有任何已授权账户" → **不要反复重试业务命令**，按 `references/auth-sop.md` 引导
-- 退出码 6 或提示 Python 版本不满足 → 环境问题，按上面的表换解释器 / 让用户升级 Python，
-  **不要换参数重试**
-- 报 Python 错误 → 环境问题，不是权限问题
+- 提示 uv 命令不存在 → 按上面的安装指引走，**不要换参数重试**
+- 退出码 6 → 绕过了 uv 直接调了低版本 python，改用 `uv run` 即可
+- 其它 Python 报错 → 环境问题，不是权限问题
 
-凭据不随专家包分发，每台机器需单独授权一次。机器可读的运行时契约见 `runtime.json`。
+凭据不随专家包分发，每台机器需单独授权一次。运行方式与 uv 安装命令见 `runtime.json`；
+依赖与 Python 下限以脚本头部内联元数据为准。
 
 ## 一、多账户与授权
 
 一个 **alias = 一个推广账户 = 一份独立凭据**，令牌互不通用。
 
 ```bash
-python3 scripts/bmctl.py accounts list                          # 看有哪些账户
-python3 scripts/bmctl.py accounts use wds02                     # 设默认账户
-python3 scripts/bmctl.py --account axd kr expand --seed "猫粮"   # 指定账户执行
-python3 scripts/bmctl.py --account axd auth status              # 查令牌状态
+uv run scripts/bmctl.py accounts list                          # 看有哪些账户
+uv run scripts/bmctl.py accounts use wds02                     # 设默认账户
+uv run scripts/bmctl.py --account axd kr expand --seed "猫粮"   # 指定账户执行
+uv run scripts/bmctl.py --account axd auth status              # 查令牌状态
 ```
 
 接入账户用内置回调服务，**一次可连续接多个**：
 
 ```bash
 # 起服务（默认不限账户数，持续到 --wait 超时）
-python3 scripts/bmctl.py auth serve --port 8080 \
+uv run scripts/bmctl.py auth serve --port 8080 \
   --app-id <AppID> --developer-uid <开发者uid> --secret-key <SecretKey> --wait 900
 
 # 为每个账户生成带别名的链接，分头发出去
-python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid> \
+uv run scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid> \
   --callback https://<公网地址>/oauth/callback --alias acc_a
 ```
 
@@ -136,7 +145,7 @@ python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者ui
 透传时方法名支持小写蛇形，脚本自动转驼峰：
 
 ```bash
-python3 scripts/bmctl.py call --service krService --method get_kr_by_query \
+uv run scripts/bmctl.py call --service krService --method get_kr_by_query \
   --body '{"query":"多肉"}' --format md
 ```
 
@@ -170,15 +179,15 @@ python3 scripts/bmctl.py call --service krService --method get_kr_by_query \
 
 ```bash
 # 1. 从 A 导出（已剔除所有 id）
-python3 scripts/bmctl.py transfer describe --from-account wds02 --campaign-ids 123 --out plan.json
+uv run scripts/bmctl.py transfer describe --from-account wds02 --campaign-ids 123 --out plan.json
 
 # 2. 人工核对 plan.json：价格、地域、落地页、否定词、时段
 
 # 3. 预览在 B 将执行的动作
-python3 scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd --prefix "A-"
+uv run scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd --prefix "A-"
 
 # 4. 确认后写入（需要投放管理权限）
-python3 scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd --prefix "A-" --execute
+uv run scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd --prefix "A-" --execute
 ```
 
 三条硬规则：
@@ -201,12 +210,12 @@ python3 scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd -
 
 ```bash
 # 第一步：预览（不带 --execute）。会打印完整报文，并给出 approval.digest
-python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
   --words "月季,玫瑰花" --price 3.5 --phrase-type 2
 # 输出里： "approval": {"digest": "cfa5cd773f5bdf99", ...}
 
 # 第二步：把报文给用户核对，得到明确同意后，用那个 digest 执行
-python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
   --words "月季,玫瑰花" --price 3.5 --phrase-type 2 \
   --execute --confirm cfa5cd773f5bdf99
 ```
@@ -276,7 +285,7 @@ python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
 | `8002` | 鉴权放错位置 | 必须放请求体 JSON 的 header，不是 HTTP 头（脚本已处理） |
 | `81020` | userName 与令牌不属同一账户 | 用 `--account` 指定，别手工混用凭据 |
 | `89406` | 权限域未开通 | 见「七、能力边界」，不是令牌问题 |
-| 退出码 `6` | 解释器版本低于 3.9 | 换 `py -3` / 升级 Python。**不是权限问题，换参数重试没用** |
+| 退出码 `6` | 绕过了 uv，直接用 <3.9 的 python | 改用 `uv run`。**不是权限问题，换参数重试没用** |
 
 错误统一以 JSON 返回，含 `code` / `position` / `hint`，退出码非 0。
 完整错误码表见 `references/auth.md`。

@@ -33,9 +33,21 @@ mkdir -p "$TARGET"
 # 白名单的失效方式是「少打一个文件，validate 会报错」，比「多打垃圾」安全得多。
 # --delete-excluded：光有 --delete 不会删掉被 --exclude 规则挡下的文件，
 # 而白名单的最后一条就是 `--exclude '*'`，所以必须加它才能清走目标目录里的残留。
+#
+# 下面这批 exclude 必须排在第一个 --include 之前：rsync 是**首条匹配即定**，
+# 放到 --include '/skills/**' 后面就全部失效，一个几百 MB 的 .venv 会被打进包。
+# 也不能加前导斜杠——要匹配 skills/ 下任意层级的同名项。
 rsync -a --delete --delete-excluded \
   --exclude '__pycache__/' \
+  --exclude '.venv/' \
+  --exclude '.pytest_cache/' \
+  --exclude '.ruff_cache/' \
   --exclude '*.pyc' \
+  --exclude '*.pyo' \
+  --exclude '*.so' \
+  --exclude '*.pyd' \
+  --exclude '*.dylib' \
+  --exclude '*.py.lock' \
   --include '/.codebuddy-plugin/' \
   --include '/.codebuddy-plugin/**' \
   --include '/agents/' \

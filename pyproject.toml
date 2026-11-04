@@ -1,10 +1,10 @@
 [project]
 name = "mybmo-baidu-ecommerce-marketing"
-version = "1.8.1"
+version = "1.9.0"
 description = "WorkBuddy plugin: Baidu e-commerce marketing officer, backed by real keyword data from the Baidu Marketing Open Platform API"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = []  # 运行时零第三方依赖：插件由 WorkBuddy 用系统 python3 直接运行，不经过安装
+dependencies = []  # 运行时依赖写在 bmctl.py 的 PEP 723 内联块里；这里只放开发依赖
 
 [dependency-groups]
 dev = [
@@ -14,7 +14,7 @@ dev = [
 
 [tool.uv]
 # 虚拟项目：不打包、不安装。插件运行靠 bmctl.py 里的 sys.path 注入，
-# 加 build-system 反而会让 "零依赖" 的承诺变形。
+# 加 build-system 反而会让「单文件脚本 + 内联元数据」的模型变形。
 package = false
 
 [tool.ruff]

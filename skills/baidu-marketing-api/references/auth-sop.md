@@ -12,7 +12,7 @@
 只要用户的需求涉及**真实数据**（拓词、搜索量、账户信息、跨账户复制），先跑：
 
 ```bash
-python3 <skill>/scripts/bmctl.py accounts list
+uv run <skill>/scripts/bmctl.py accounts list
 ```
 
 | 结果 | 动作 |
@@ -76,7 +76,7 @@ python3 <skill>/scripts/bmctl.py accounts list
 2. 你生成授权链接：
 
 ```bash
-python3 <skill>/scripts/bmctl.py auth link --app-id <AppID> \
+uv run <skill>/scripts/bmctl.py auth link --app-id <AppID> \
   --developer-uid <uid> --callback <公网地址> --alias <账户别名>
 ```
 
@@ -88,7 +88,7 @@ python3 <skill>/scripts/bmctl.py auth link --app-id <AppID> \
 4. 拿到 code 立刻换令牌：
 
 ```bash
-python3 <skill>/scripts/bmctl.py auth exchange --code <authCode> \
+uv run <skill>/scripts/bmctl.py auth exchange --code <authCode> \
   --app-id <AppID> --secret-key <SecretKey> --user-id <userId> \
   --user-name "<账户中文名>" --alias <别名>
 ```
@@ -111,7 +111,7 @@ python3 <skill>/scripts/bmctl.py auth exchange --code <authCode> \
 2. 起服务（**后台跑，别阻塞对话**）：
 
 ```bash
-python3 <skill>/scripts/bmctl.py auth serve --port 8080 \
+uv run <skill>/scripts/bmctl.py auth serve --port 8080 \
   --app-id <AppID> --developer-uid <uid> --secret-key <SecretKey> \
   --wait 900
 ```
@@ -121,7 +121,7 @@ python3 <skill>/scripts/bmctl.py auth serve --port 8080 \
 3. 为每个账户生成链接，**逐个**给：
 
 ```bash
-python3 <skill>/scripts/bmctl.py auth link --app-id <AppID> \
+uv run <skill>/scripts/bmctl.py auth link --app-id <AppID> \
   --developer-uid <uid> --callback <公网地址> --alias rose_shop
 ```
 
@@ -166,10 +166,10 @@ chmod 600 ~/.workbuddy/baidu-marketing/accounts/<alias>.json
 
 ```bash
 # 1. 账户能识别
-python3 <skill>/scripts/bmctl.py accounts list
+uv run <skill>/scripts/bmctl.py accounts list
 
 # 2. 真的能取数
-python3 <skill>/scripts/bmctl.py --account <别名> kr expand --seed "测试" --limit 1
+uv run <skill>/scripts/bmctl.py --account <别名> kr expand --seed "测试" --limit 1
 ```
 
 两条都通过才算接入完成。**只跑第一条就宣布成功是不合格的**——凭据写对了不等于权限够。
@@ -188,7 +188,7 @@ python3 <skill>/scripts/bmctl.py --account <别名> kr expand --seed "测试" --
 | `Address already in use` | 端口占用 | 换 `--port 8081` |
 | `state 不属于任何已配置应用` | 用了旧链接或 base 对不上 | 重新生成链接，别复用旧的 |
 
-**E1（Python 环境问题）**：报 `command not found` 或模块导入失败 → 是环境问题，不是权限问题。先确认 `python3 --version`（Windows 用 `py -3 --version`）**≥ 3.9**，别往鉴权方向排查。版本不足时脚本会以退出码 6 结束。
+**E1（运行环境问题）**：报 `command not found` 或模块导入失败 → 是环境问题，不是权限问题。先确认 `uv --version` 可用（没有就按 onboarding 的指引装），别往鉴权方向排查。只有绕过 uv 直接用低版本 python 时才会出现退出码 6。
 
 ---
 

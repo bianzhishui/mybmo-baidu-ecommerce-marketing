@@ -7,7 +7,7 @@
                     ├── auth      令牌刷新 / 换取
                     ├── config    凭据来源解析
                     └── errors    错误码释义
-纯标准库实现，无第三方依赖。
+运行时依赖（若有）由 bmctl.py 头部的 PEP 723 内联元数据声明。
 """
 
 from .config import load_credential

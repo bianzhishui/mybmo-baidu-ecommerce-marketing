@@ -7,36 +7,50 @@
 在技能的 `scripts/` 目录下执行（技能加载时会给出 base directory）：
 
 ```bash
-python3 scripts/bmctl.py accounts list
+uv run scripts/bmctl.py accounts list
 ```
 
 | 结果 | 含义 | 下一步 |
 |---|---|---|
 | 显示 1 个或多个账户，`usable: true` | 已经可用 | 跳到「五、开始使用」 |
 | `总数 0` / 提示"还没有任何已授权账户" | 没有凭据 | 继续往下走 |
-| 报 `No such file` / `python3: command not found` | 环境问题 | 看「一、环境检查」 |
+| 报 `No such file` / `uv: command not found` | 环境问题 | 看「一、环境检查」 |
 
 排查顺序永远是：**环境 → 账户 → 权限**，不要跳步。
 
 ## 一、环境检查
 
-只要求 **Python 3.9 及以上**，**没有任何第三方依赖**（纯标准库实现），也不需要 `pip install`。
+只要装一个东西：**uv**。Python 由它负责，依赖由它装，你不需要 `pip install` 任何包。
 
-先确认解释器：
+```bash
+uv --version
+```
+
+没有的话按平台装（官方脚本，一次性）：
 
 ```bash
 # macOS / Linux
-python3 --version
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Windows（注意：python.org 的安装包只生成 python.exe 和 py.exe，没有 python3.exe）
-py -3 --version
+# Windows（PowerShell）
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-- macOS / Linux：系统自带或 Homebrew 安装，通常已满足
-- Windows：到 python.org 装 3.9+，安装时勾选 "Add Python to PATH"。
-  装完用 `py -3` 调起；直接敲 `python3` 会报"不是内部或外部命令"
-- 版本低于 3.9：`bmctl.py` 会直接给出中文提示并**以退出码 6 结束**，
-  不会抛出看不懂的栈。看到退出码 6 就是版本问题，不用往鉴权方向查
+装完重新开一个终端，`uv --version` 有输出就行。
+
+然后所有命令都用 `uv run` 开头：
+
+```bash
+uv run scripts/bmctl.py accounts list
+```
+
+几个要点：
+
+- **三平台同一条命令**，不用再区分 `python3` 和 `py -3`
+- **首次运行会慢几秒**，那是 uv 在建隔离环境（缓存在 `uv cache dir`，之后复用），不是卡死
+- uv 的进度提示走 **stderr**，脚本输出的 JSON 走 **stdout**，两者分开看
+- 降级：uv 实在装不上、但机器已有 Python 3.9+ 时，可以用 `python3 <路径>/scripts/bmctl.py`
+  跑同样的命令；此时版本过低会**以退出码 6 结束**并给出中文提示
 
 Windows 上如果输出中文变成乱码，现在的脚本会把标准输出统一设成 UTF-8；
 若终端仍显示乱码，执行一次：
@@ -107,7 +121,7 @@ cloudflared tunnel --url http://127.0.0.1:8080
 **③ 起本地服务**
 
 ```bash
-python3 scripts/bmctl.py auth serve --port 8080 \
+uv run scripts/bmctl.py auth serve --port 8080 \
   --app-id <AppID> \
   --developer-uid <开发者uid> \
   --callback https://xxx.trycloudflare.com/oauth/callback \
@@ -132,7 +146,7 @@ python3 scripts/bmctl.py auth serve --port 8080 \
 只想生成链接、不启动服务时：
 
 ```bash
-python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid> \
+uv run scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid> \
   --callback https://xxx.trycloudflare.com/oauth/callback --scope <权限码>
 ```
 
@@ -141,7 +155,7 @@ python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者ui
 > 如果 3.2 的 `auth serve` 已经返回了 `credential` 字段，说明已自动换好，跳过本步。
 
 ```bash
-python3 scripts/bmctl.py auth exchange \
+uv run scripts/bmctl.py auth exchange \
   --code <authCode> \
   --app-id <AppID> \
   --secret-key <SecretKey> \
@@ -159,10 +173,10 @@ python3 scripts/bmctl.py auth exchange \
 
 ```bash
 # 1. 账户状态
-python3 scripts/bmctl.py --account <别名> auth status
+uv run scripts/bmctl.py --account <别名> auth status
 
 # 2. 真实取数
-python3 scripts/bmctl.py --account <别名> kr expand --seed "测试词" --limit 3 --format md
+uv run scripts/bmctl.py --account <别名> kr expand --seed "测试词" --limit 3 --format md
 ```
 
 第 2 条能返回关键词、搜索量、出价，就算彻底跑通了。
@@ -215,7 +229,7 @@ python3 scripts/bmctl.py --account <别名> kr expand --seed "测试词" --limit
 
 ```bash
 # 删掉某个账户
-python3 scripts/bmctl.py accounts remove <别名>
+uv run scripts/bmctl.py accounts remove <别名>
 
 # 全部清空（谨慎，删的是凭据不是数据）
 rm -rf ~/.workbuddy/baidu-marketing

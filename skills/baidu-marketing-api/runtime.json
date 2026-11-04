@@ -1,21 +1,25 @@
 {
   "name": "baidu-marketing-api",
   "entrypoint": "scripts/bmctl.py",
-  "runtime": {
-    "python": ">=3.9",
-    "python_min": [3, 9],
-    "python_tested": ["3.9.6", "3.13.12", "3.14.2"],
-    "platforms": ["macos", "linux", "windows"],
-    "dependencies": [],
-    "interpreter": {
-      "macos": "python3",
-      "linux": "python3",
-      "windows": "py -3"
-    },
-    "install_step": "无需安装：纯标准库实现，不需要 pip install",
-    "network": "https://api.baidu.com",
-    "local_ports": [8080]
+  "runner": "uv run scripts/bmctl.py",
+  "platforms": ["macos", "linux", "windows"],
+  "python_tested": ["3.9.6", "3.13.12", "3.14.2"],
+  "uv": {
+    "check": "uv --version",
+    "install": {
+      "macos": "curl -LsSf https://astral.sh/uv/install.sh | sh",
+      "linux": "curl -LsSf https://astral.sh/uv/install.sh | sh",
+      "windows": "powershell -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\""
+    }
   },
+  "interpreter": {
+    "macos": "python3",
+    "linux": "python3",
+    "windows": "py -3"
+  },
+  "interpreter_note": "仅在 uv 不可用、且机器已有 Python 3.9+ 时使用；正常情况下 Python 版本由 uv 按脚本头部元数据决定",
   "credentials_dir": "~/.workbuddy/baidu-marketing",
-  "preflight": "scripts/bmctl.py 启动时会读取 runtime.python_min 校验解释器版本，低于门槛输出中文提示并退出码 6"
+  "network": "https://api.baidu.com",
+  "local_ports": [8080],
+  "preflight": "uv 读 bmctl.py 的 PEP 723 块准备隔离环境；脚本再按 MIN_PYTHON 常量校验解释器，低于 3.9 输出中文提示并退出码 6"
 }

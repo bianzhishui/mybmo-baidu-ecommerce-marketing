@@ -2,6 +2,8 @@
 .DS_Store
 
 # Python
+# uv 的脚本锁（uv lock --script 生成），不随包分发，也不要提交
+*.py.lock
 __pycache__/
 *.py[cod]
 *.egg-info/

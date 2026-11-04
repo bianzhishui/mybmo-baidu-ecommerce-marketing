@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.8.1-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.9.0-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,10 +22,10 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.8.1` |
+| 版本 | `1.9.0` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
-| 运行时 | Python 3.9+，纯标准库**零第三方依赖**；macOS / Linux / Windows |
+| 运行时 | 由 `uv` 执行（首次自动准备环境）；零第三方依赖；macOS / Linux / Windows |
 
 装进 WorkBuddy 后，在专家中心选中 **MyBMO** 即可对话；它会在需要取数时自动调用内置技能，不需要你手动敲命令。
 
@@ -53,23 +53,38 @@
 
 ## 环境要求
 
+只需要装一个东西：**uv**。Python 解释器与依赖都由它托管。
+
 | 项 | 要求 |
 |---|---|
-| Python | **3.9 及以上**。低于门槛时 `bmctl.py` 会在启动阶段给出中文提示并以**退出码 6** 结束，不会抛裸 Traceback |
-| 实测版本 | 3.9.6 / 3.13.12 / 3.14.2（三档各跑完整测试套件）。上限未设限——只要 3.9+ 的语法与标准库行为不变就能跑 |
-| 依赖 | **无**。纯标准库实现，不需要 `pip install`，也不联网下载任何包 |
-| 平台 | macOS / Linux / Windows。三者的解释器命令不同，见下 |
+| 执行器 | **uv**（三平台同一条命令）。Python 版本由 uv 按脚本头部的内联元数据自动选择 |
+| Python | 脚本声明 `requires-python = ">=3.9"`；uv 会用已装的合适版本，没有才下载 |
+| 实测版本 | 3.9.6 / 3.13.12 / 3.14.2（三档各跑完整测试套件） |
+| 依赖 | **零第三方依赖**（纯标准库）。首次运行 uv 会在自己的缓存里准备隔离环境，不需要 `pip install` |
+| 平台 | macOS / Linux / Windows，命令完全一致 |
 
-解释器怎么调：
+装 uv（一次性）：
 
-| 平台 | 命令 | 说明 |
-|---|---|---|
-| macOS / Linux | `python3` | 系统自带或 Homebrew 安装 |
-| Windows | `py -3` | python.org 安装包只生成 `python.exe` 与 `py.exe`，**没有 `python3.exe`**；`py -3` 是官方启动器 |
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-> 机器上没装 Python、或版本过低，脚本会直接告诉你缺什么，而不是抛一堆栈。
-> 机器可读的门槛写在 [`skills/baidu-marketing-api/runtime.json`](skills/baidu-marketing-api/runtime.json)，
-> 随包分发，入口代码启动时会读它做校验。
+# Windows（PowerShell）
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+校验与运行：
+
+```bash
+uv --version
+uv run skills/baidu-marketing-api/scripts/bmctl.py accounts list
+```
+
+> 运行方式、uv 安装命令、凭据目录写在 [`skills/baidu-marketing-api/runtime.json`](skills/baidu-marketing-api/runtime.json)；
+> **依赖与 Python 下限以 `bmctl.py` 头部的内联元数据为准**（uv 真正执行的就是它）。
+>
+> 降级：uv 装不上、但机器已有 Python 3.9+ 时，`python3 bmctl.py` 行为完全一致；
+> 那条路径上版本过低会被拦下（中文提示 + 退出码 6）。
 
 ## 安装
 
@@ -93,25 +108,25 @@ git clone https://github.com/bianzhishui/mybmo-baidu-ecommerce-marketing.git "$T
 
 ## 快速开始
 
-下面的 `python3` 在 Windows 上要换成 `py -3`（原因见「环境要求」）。路径含空格时记得加引号。
+三平台命令一致，路径含空格时整体加引号。首次运行慢几秒是在建隔离环境，之后复用。
 
 ```bash
 cd ~/.workbuddy/plugins/marketplaces/my-experts/plugins/mybmo-baidu-ecommerce-marketing/skills/baidu-marketing-api
 
-# 1. 自检：解释器版本与已授权账户
-python3 scripts/bmctl.py accounts list
+# 1. 自检：已授权账户
+uv run scripts/bmctl.py accounts list
 
 # 2. 拓词
-python3 scripts/bmctl.py kr expand --seed "月季" --limit 20 --format md
+uv run scripts/bmctl.py kr expand --seed "月季" --limit 20 --format md
 
 # 3. 多账户时指定账户
-python3 scripts/bmctl.py --account axd kr expand --seed "猫粮"
+uv run scripts/bmctl.py --account axd kr expand --seed "猫粮"
 ```
 
-Windows 的等价写法：
+也可以在任意目录用绝对路径执行，uv 会按脚本自己的内联元数据准备环境：
 
-```bat
-py -3 scripts\bmctl.py accounts list
+```bash
+uv run ~/.workbuddy/plugins/marketplaces/my-experts/plugins/mybmo-baidu-ecommerce-marketing/skills/baidu-marketing-api/scripts/bmctl.py accounts list
 ```
 
 ## 命令清单
@@ -142,12 +157,12 @@ py -3 scripts\bmctl.py accounts list
 
 ```bash
 # 1. 预览：打印 URL、报文（令牌已脱敏）与 approval.digest
-python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
   --words "月季,玫瑰花" --price 3.5 --phrase-type 2
 # → "approval": { "digest": "cfa5cd773f5bdf99", ... }
 
 # 2. 把报文给用户核对，确认后用那个 digest 执行
-python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
   --words "月季,玫瑰花" --price 3.5 --phrase-type 2 \
   --execute --confirm cfa5cd773f5bdf99
 ```
@@ -162,7 +177,7 @@ digest 是报文内容的指纹：没预览就拿不到，预览后改了参数�
 透传时方法名支持小写蛇形，脚本自动转驼峰：
 
 ```bash
-python3 scripts/bmctl.py call --service krService --method get_kr_by_query \
+uv run scripts/bmctl.py call --service krService --method get_kr_by_query \
   --body '{"query":"多肉"}' --format md
 ```
 
@@ -243,7 +258,7 @@ mybmo-baidu-ecommerce-marketing/
 ├── agents/MyBMO.md                 # 专家人设：能力、数据工具、SOP、边界
 ├── skills/baidu-marketing-api/
 │   ├── SKILL.md                    # 能力入口：自检、命令、字段、边界
-│   ├── runtime.json                # 运行时契约：Python 门槛、三平台解释器、零依赖
+│   ├── runtime.json                # 运行方式、uv 安装命令、凭据目录
 │   ├── references/
 │   │   ├── keyword-sop.md          # 图片转投流关键词的 SOP（Agent 用）
 │   │   ├── auth-sop.md             # 鉴权的交互 SOP（Agent 用）
@@ -252,7 +267,7 @@ mybmo-baidu-ecommerce-marketing/
 │   │   └── api-index.md            # 133 服务 / 389 接口索引
 │   └── scripts/
 │       ├── bmctl.py                # CLI 薄壳
-│       └── bmclient/               # 核心库（纯标准库）
+│       └── bmclient/               # 核心库（纯标准库；运行时依赖见 bmctl.py 头部）
 │           ├── config.py           # 多账户凭据解析
 │           ├── auth.py             # 令牌刷新 / 授权码换取
 │           ├── oauthserver.py      # 内置回调服务
@@ -263,21 +278,22 @@ mybmo-baidu-ecommerce-marketing/
 │           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制 / write 写操作
 ├── tests/                          # pytest：渲染 / 错误码 / 凭据 / CLI 冒烟
 ├── tools/build-zip.sh              # 一键生成可上传到开发平台的 zip
-├── pyproject.toml                  # uv 项目配置（虚拟项目，dev 依赖 pytest、ruff）
-├── uv.lock                         # 开发依赖锁文件
-├── .python-version                 # 锁定 Python 3.13
+├── pyproject.toml                  # 仅开发：dev 依赖 pytest、ruff，pytest/ruff 配置
+├── uv.lock                         # 仅开发：开发工具链锁文件
+├── .python-version                 # 仅开发：锁定开发用 Python 3.13
 ├── avatars/expert.png
 └── README.md
 ```
 
 ## 本地开发
 
-用 `uv` 管理开发环境。**运行时零依赖**——插件由 WorkBuddy 用系统 `python3` 直接执行 `bmctl.py`，
-不经过安装；`pytest` / `ruff` 只在开发时用。
+用 `uv` 管理开发环境。运行时零第三方依赖，脚本由 `uv run` 执行（用户端由 uv 在自己的缓存里
+准备环境）；`pytest` / `ruff` 只在开发时用。上面那三个文件（`pyproject.toml` / `uv.lock` /
+`.python-version`）**都是开发用的，不进分发包**。
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 125 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 139 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
@@ -301,7 +317,7 @@ AssertionError: 测试污染了真实审计目录！
 
 > `pyproject.toml` 标了 `package = false`（虚拟项目）：不打包、不安装。
 > 因为插件靠 `bmctl.py` 里的 `sys.path` 注入加载 `bmclient`，加 build-system 反而会
-> 让「零依赖」的承诺变形。
+> 让「单文件脚本 + 内联元数据」的模型变形。
 
 改完源码后，需要同步到 WorkBuddy 的插件目录并让缓存重建才能生效：
 
@@ -336,9 +352,13 @@ rsync -a --delete \
 运行时副本过去，再对它校验和打包。
 
 **包里有什么**：`plugin.json`、`README.md`、`agents/`、`avatars/`、`skills/`。
-开发用文件不会进包——`tests/`、`tools/`、`pyproject.toml`、`uv.lock`、`.venv`、`.git`。
-注意排除规则用前导斜杠锚定（`/tools` 而非 `tools`），否则会误伤
-`skills/baidu-marketing-api/scripts` 这类同名嵌套目录。
+
+打包用的是**白名单**同步（只 include 上面这几项，最后 `--exclude '*'`），所以
+`tests/`、`tools/`、`pyproject.toml`、`uv.lock`、`.python-version`、`.venv`、`.git`
+都不会进包。`skills/**` 内部额外排除了 `.venv/`、`*.so`、`*.pyd`、`*.dylib`、`*.lock`，
+避免将来有人把虚拟环境或编译产物带到包里去。
+
+脚本还会检查包根目录：除 `README.md` 外出现任何文件即中止打包。
 
 zip 内部结构是单个顶层目录，上传时不要额外套壳：
 
@@ -363,7 +383,7 @@ EXPERT_MANAGER_DIR=/path/to/skills/expert-manager/scripts ./tools/build-zip.sh
 ## 安全与隐私
 
 - **凭据不入库**：令牌只存在本机 `~/.workbuddy/baidu-marketing/accounts/`，`.gitignore` 已排除 `accounts/`、`*.token`、`.env`。
-- **运行时零依赖**：纯 Python 标准库，不引入任何外部包（`pytest` / `ruff` 仅开发时使用），减少供应链面。
+- **运行时零第三方依赖**：纯标准库，执行器只有 `uv` 一个可执行文件（`pytest` / `ruff` 仅开发时使用），供应链面最小。
 - **写操作强制两步审批**：预览拿 digest 才能执行，没预览或报文被改过一律拒绝（退出码 4）；权限不足时本地拦截（退出码 3），不发出半截请求。
 - **写操作留痕**：每次真实写入追加到 `~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，含账户、动作、物料、完整报文与审批 digest，出问题可按天回溯。
 - **批量有上限**：单次 200 词 / 20 计划 / 50 单元，超限直接拒绝而不是替你分批跑——改太多出错时无法人工核对。

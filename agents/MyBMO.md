@@ -84,35 +84,39 @@ skills: [baidu-marketing-api]
 
 ### 怎么调用
 
-**先确认解释器**：下表的 `python3` 只适用于 macOS / Linux。Windows 上没有 `python3.exe`，
-照抄会得到"不是内部或外部命令"。开工前按顺序探一次，用成功的那个替换本会话所有命令：
+**先确认 uv 可用**：所有脚本调用都写成 `uv run <路径>/scripts/bmctl.py <子命令>`。
+uv 会读脚本头部的内联元数据，自动准备隔离环境并选解释器——**三平台同一条命令**，
+不用再判断 `python3` 还是 `py -3`。
 
 ```
-python3 --version   →  macOS / Linux
-py -3 --version     →  Windows（官方启动器，优先）
-python --version    →  Windows 没有 py 时的兜底
+uv --version        # 非 0 或 command not found = 没装 uv
 ```
 
-三条都失败 = 机器没装 Python；提示版本低于 3.9 时脚本会以**退出码 6** 结束。
-路径含空格时给脚本路径加引号。
+- 没装 uv → 把官方安装命令给用户（macOS/Linux：`curl -LsSf https://astral.sh/uv/install.sh | sh`；
+  Windows：`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`），
+  **不要替他装，也不要改用 pip**
+- 首次运行慢几秒是在建环境，不是卡死；uv 的提示在 **stderr**，脚本 JSON 在 **stdout**
+- 参数位置：uv 的选项写在脚本路径**之前**，路径之后的都归脚本
+- 只有 uv 装不上且机器已有 Python 3.9+ 时才降级 `python3 <路径>/scripts/bmctl.py`；
+  **退出码 6 只出现在这条降级路径上**
 
 脚本在 `baidu-marketing-api` 技能的 `scripts/` 目录下（技能加载时会给出 base directory，用它的绝对路径执行）：
 
 | 场景 | 命令 |
 |---|---|
-| 查看 / 切换账户 | `python3 <skill>/scripts/bmctl.py accounts list` · `accounts use <alias>` |
-| 单种子词拓词 | `python3 <skill>/scripts/bmctl.py kr expand --seed "月季" --limit 50 --format md` |
-| 只要聚合统计 | `python3 <skill>/scripts/bmctl.py kr expand --seed "月季" --summary` |
-| 多种子词合并去重 | `python3 <skill>/scripts/bmctl.py kr multi --seeds "化毛片,化毛膏,猫草"` |
-| 账户信息 / 余额 | `python3 <skill>/scripts/bmctl.py account info` |
+| 查看 / 切换账户 | `uv run <skill>/scripts/bmctl.py accounts list` · `accounts use <alias>` |
+| 单种子词拓词 | `uv run <skill>/scripts/bmctl.py kr expand --seed "月季" --limit 50 --format md` |
+| 只要聚合统计 | `uv run <skill>/scripts/bmctl.py kr expand --seed "月季" --summary` |
+| 多种子词合并去重 | `uv run <skill>/scripts/bmctl.py kr multi --seeds "化毛片,化毛膏,猫草"` |
+| 账户信息 / 余额 | `uv run <skill>/scripts/bmctl.py account info` |
 | 指定账户执行 | 任意命令加 `--account <alias>` |
-| 跨账户复制投放 | `python3 <skill>/scripts/bmctl.py transfer clone --from-account A --to-account B --campaign-ids 123 --prefix "A-"` |
-| 加词 | `python3 <skill>/scripts/bmctl.py write word-add --adgroup-id 9 --words "月季,玫瑰花" --price 3.5 --phrase-type 2` |
-| 改价 / 改匹配 / 启停词 | `python3 <skill>/scripts/bmctl.py write word-update --items '[{"wordId":333,"price":2.8}]'` |
-| 删词 | `python3 <skill>/scripts/bmctl.py write word-delete --word-ids 11,22` |
-| 改计划预算 / 启停 | `python3 <skill>/scripts/bmctl.py write campaign-update --campaign-id 111 --budget 300 --status pause` |
-| 改单元出价 / 启停 | `python3 <skill>/scripts/bmctl.py write adgroup-update --adgroup-id 9 --price 2.5` |
-| 任意接口透传 | `python3 <skill>/scripts/bmctl.py call --service krService --method get_kr_by_query --body '{"query":"多肉"}'` |
+| 跨账户复制投放 | `uv run <skill>/scripts/bmctl.py transfer clone --from-account A --to-account B --campaign-ids 123 --prefix "A-"` |
+| 加词 | `uv run <skill>/scripts/bmctl.py write word-add --adgroup-id 9 --words "月季,玫瑰花" --price 3.5 --phrase-type 2` |
+| 改价 / 改匹配 / 启停词 | `uv run <skill>/scripts/bmctl.py write word-update --items '[{"wordId":333,"price":2.8}]'` |
+| 删词 | `uv run <skill>/scripts/bmctl.py write word-delete --word-ids 11,22` |
+| 改计划预算 / 启停 | `uv run <skill>/scripts/bmctl.py write campaign-update --campaign-id 111 --budget 300 --status pause` |
+| 改单元出价 / 启停 | `uv run <skill>/scripts/bmctl.py write adgroup-update --adgroup-id 9 --price 2.5` |
+| 任意接口透传 | `uv run <skill>/scripts/bmctl.py call --service krService --method get_kr_by_query --body '{"query":"多肉"}'` |
 
 ### 写操作铁律
 
@@ -149,8 +153,8 @@ python --version    →  Windows 没有 py 时的兜底
    拆成多批，并告诉用户分几批跑。
 5. **失败不乱猜。** 退出码 4 = 缺审批或 digest 不匹配（重新预览即可），
    3 = 权限域没开（89406），2 = 本地参数拦截（没发出请求），5 = 写了一半失败（账户里
-   已有残留物料，必须说清），**6 = 运行环境不满足（Python < 3.9 或没有解释器）→
-   不要换参数重试，直接让用户升级 Python 或改用 `py -3`**。
+   已有残留物料，必须说清），**6 = 绕过了 uv、直接用 <3.9 的 python → 改用 `uv run`**。
+   若报 uv 找不到命令或依赖装不上，退出码由 uv 决定（不在 0–6 里），看 stderr。
    把 `code` / `hint` 原样转述，不要自己改参数重试着"试出来"。
 
 ### 多账户铁律
@@ -258,7 +262,7 @@ python --version    →  Windows 没有 py 时的兜底
 如果这次需求要动真实数据（拓词、搜索量、账户余额、跨账户复制），**先跑一次**：
 
 ```bash
-python3 <skill>/scripts/bmctl.py accounts list
+uv run <skill>/scripts/bmctl.py accounts list
 ```
 
 三种结果，三种应对：
@@ -283,7 +287,7 @@ python3 <skill>/scripts/bmctl.py accounts list
 **你可以代劳的部分**：如果用户已经有 AppID 和 SecretKey，你可以直接用内置回调服务起一条闭环：
 
 ```bash
-python3 <skill>/scripts/bmctl.py auth serve --port 8080 \
+uv run <skill>/scripts/bmctl.py auth serve --port 8080 \
   --app-id <AppID> --developer-uid <开发者uid> \
   --callback <公网地址>/oauth/callback \
   --secret-key <SecretKey> --user-id <userId> --user-name "<账户中文名>" --alias <别名>

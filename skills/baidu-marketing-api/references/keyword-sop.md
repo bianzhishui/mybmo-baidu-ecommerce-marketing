@@ -130,13 +130,13 @@ L1 保证覆盖量，L2 切分人群的习惯用语，L3 和 L4 挖差异化长�
 先自检账户（没账户就按 `auth-sop.md` 引导，不要硬跑）：
 
 ```bash
-python3 scripts/bmctl.py accounts list
+uv run scripts/bmctl.py accounts list
 ```
 
 一次跑完一个产品的全部种子词，去重合并：
 
 ```bash
-python3 scripts/bmctl.py kr multi --seeds "月季,花肥,盆栽月季,促花肥,缓释肥" --format json
+uv run scripts/bmctl.py kr multi --seeds "月季,花肥,盆栽月季,促花肥,缓释肥" --format json
 ```
 
 **必须看每个种子词的 `returned` 和 `new`：**
@@ -151,7 +151,7 @@ python3 scripts/bmctl.py kr multi --seeds "月季,花肥,盆栽月季,促花肥,
 想单独看某个种子词的量级和均价：
 
 ```bash
-python3 scripts/bmctl.py kr expand --seed "月季" --summary
+uv run scripts/bmctl.py kr expand --seed "月季" --summary
 ```
 
 单个种子词最多回 300 条，这是接口上限，不是被截断。想要更多只能加种子词。

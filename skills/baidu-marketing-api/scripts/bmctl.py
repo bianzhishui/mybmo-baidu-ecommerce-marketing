@@ -1,22 +1,32 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
 """百度营销 API 命令行入口（多账户）。
 
 只做三件事：解析参数、调用 services、渲染输出。
 不含任何业务逻辑与网络细节，保证这层足够薄。
 
 账户模型：一个 alias = 一个推广账户 = 一份独立凭据，凭据自持，不依赖任何外部库。
-    python3 bmctl.py auth exchange --code <authCode> --app-id <AppID> \
+    uv run bmctl.py auth exchange --code <authCode> --app-id <AppID> \
         --secret-key <SecretKey> --user-id <userId> --user-name "<账户中文名>" --alias wds02
-    python3 bmctl.py accounts list
-    python3 bmctl.py accounts use wds02
-    python3 bmctl.py --account axd kr expand --seed "月季"
+    uv run bmctl.py accounts list
+    uv run bmctl.py accounts use wds02
+    uv run bmctl.py --account axd kr expand --seed "月季"
 
 常用：
-    python3 bmctl.py auth status
-    python3 bmctl.py kr expand --seed "月季" --limit 30 --format md
-    python3 bmctl.py kr multi --seeds "月季,花肥,缓释肥"
-    python3 bmctl.py account balance
-    python3 bmctl.py call --service CampaignService --method getCampaign --body '{}'
+    uv run bmctl.py auth status
+    uv run bmctl.py kr expand --seed "月季" --limit 30 --format md
+    uv run bmctl.py kr multi --seeds "月季,花肥,缓释肥"
+    uv run bmctl.py account balance
+    uv run bmctl.py call --service CampaignService --method getCampaign --body '{}'
+
+执行方式：
+    推荐 `uv run bmctl.py <子命令>`。文件头的内联元数据（PEP 723）声明了依赖与
+    Python 下限，uv 会据此准备一个隔离环境，不污染系统，也不需要 pip install。
+    降级：机器上已有 Python 3.9+ 且 uv 不可用时，`python3 bmctl.py` 行为完全一致
+    （当前 dependencies 为空，纯标准库即可跑）。
 """
 
 import argparse
@@ -34,18 +44,6 @@ from pathlib import Path
 MIN_PYTHON = (3, 9)
 
 
-def _declared_min_python():
-    """优先读 runtime.json 的门槛，读不到就用常量。两者一致性由测试锁死。"""
-    try:
-        raw = (Path(__file__).resolve().parents[1] / "runtime.json").read_text(
-            encoding="utf-8"
-        )
-        value = json.loads(raw)["runtime"]["python_min"]
-        return (int(value[0]), int(value[1]))
-    except (OSError, ValueError, KeyError, TypeError, IndexError):
-        return MIN_PYTHON
-
-
 def _write_line(stream, text):
     """写一行；编码不支持时退回纯 ASCII 提示，别让提示本身再抛异常。"""
     try:
@@ -58,9 +56,15 @@ def _write_line(stream, text):
 
 
 def _check_python(version_info=None, *, out=None, err=None):
-    """版本不足时给出可读提示并返回退出码 6；满足则返回 0。"""
+    """版本不足时给出可读提示并返回退出码 6；满足则返回 0。
+
+    门槛只认 MIN_PYTHON 常量。曾经额外读 runtime.json 的 python_min，
+    但那个值没有任何执行者——uv 读的是文件头的内联元数据——所以删掉了，
+    避免同一个数字有三份拷贝。现在只有两处：内联元数据（uv 执行）与本常量（守卫执行），
+    两者相等由测试锁死。
+    """
     current = tuple(version_info or sys.version_info)[:2]
-    required = _declared_min_python()
+    required = MIN_PYTHON
     if current >= required:
         return 0
 
@@ -73,8 +77,8 @@ def _check_python(version_info=None, *, out=None, err=None):
         "current": current_text,
         "executable": sys.executable,
         "platform": sys.platform,
-        "hint": "升级 Python 后重试。本工具只用标准库，不需要 pip install；"
-                "Windows 上通常用 py -3 调起解释器。",
+        "hint": "建议改用 uv run <脚本路径> 执行，uv 会自动选一个 3.9+ 的解释器；"
+                "若直接调用 python3，请先升级到 3.9+。",
     }
     # ensure_ascii=True：无论控制台是 cp936 还是被重定向到文件，都不会二次编码失败
     _write_line(out or sys.stdout, json.dumps(payload, ensure_ascii=True))
@@ -176,7 +180,7 @@ def build_parser():
     p_link.add_argument("--developer-uid", default="", help="创建应用的开发者 uid")
     p_link.add_argument("--alias", default="", help="账户别名，会编进 state，供常驻服务区分账户")
 
-    p_serve = leaf(auth_sub, "serve", "启动本地回调服务接收 authCode（零依赖，仅监听本机）")
+    p_serve = leaf(auth_sub, "serve", "启动本地回调服务接收 authCode（仅监听本机）")
     p_serve.add_argument("--port", type=int, default=8080)
     p_serve.add_argument("--host", default="127.0.0.1",
                          help="监听地址。默认只绑本机；容器内或反代在别的机器时才用 0.0.0.0")
