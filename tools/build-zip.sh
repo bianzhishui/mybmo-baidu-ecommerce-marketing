@@ -79,8 +79,21 @@ echo "③ 注册到 marketplace.json"
 python3 "$EXPERT_MANAGER_DIR/register_expert.py" "$TARGET"
 
 echo
-echo "④ 打包"
+echo "④ 打包专家包"
 python3 "$EXPERT_MANAGER_DIR/package_expert.py" "$TARGET" "$ROOT/dist"
 
+# ⑤ 单独打一个 skill 包，供只想用取数能力的人单独安装。
+# 源目录取同步后的副本（$TARGET 下），保证 skill 包与专家包里的 skill 逐字节一致。
+# 版本号从 plugin.json 读，不在脚本里写死——否则又多一个版本源。
+VERSION="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" \
+  "$TARGET/.codebuddy-plugin/plugin.json")"
+SKILL_NAME="baidu-marketing-api"
+
 echo
-echo "✅ 可上传的包：$ROOT/dist/$NAME.zip"
+echo "⑤ 打包 skill（${SKILL_NAME} v${VERSION}）"
+python3 "$ROOT/tools/package_skill.py" "$TARGET/skills/$SKILL_NAME" "$ROOT/dist" --version "$VERSION"
+
+echo
+echo "✅ 可上传的包："
+echo "   专家包  $ROOT/dist/$NAME.zip"
+echo "   skill   $ROOT/dist/${SKILL_NAME}-${VERSION}.zip"

@@ -46,6 +46,19 @@ def test_readme_badge_and_table_match_plugin_version():
     assert f"| 版本 | `{version}` |" in readme
 
 
+def test_skill_frontmatter_version_matches_plugin():
+    """skill 单独分发时，SKILL.md 是唯一能标明版本的地方。
+
+    官方 24 个自带 skill 里有 8 个写了 version，虽非必需，但不写就没法追溯。
+    写了两处就必须一致，否则包内版本和产品版本会各说各话。
+    """
+    skill = (ROOT / "skills" / "baidu-marketing-api" / "SKILL.md").read_text(encoding="utf-8")
+    match = re.search(r'^version:\s*"?([0-9][0-9.]*)"?\s*$', skill, re.MULTILINE)
+
+    assert match, "SKILL.md frontmatter 缺少 version"
+    assert match.group(1) == _plugin_version()
+
+
 def _markdown_files():
     files = list(ROOT.glob("*.md")) + list((ROOT / "agents").glob("*.md"))
     files += list((ROOT / "skills").rglob("*.md"))

@@ -15,5 +15,6 @@ from .transport import BaiduClient
 
 __all__ = ["BaiduClient", "load_credential"]
 
-# 这里刻意不放 __version__：版本号只在 .codebuddy-plugin/plugin.json 维护一处。
+# 这里刻意不放 __version__：版本号只维护一处（专家包看 plugin.json，
+# 单独分发 skill 时看 SKILL.md frontmatter），库内再存一份必然漂移。
 # 之前那个 "1.0.0" 早已和专家包版本脱节，留着只会误导排查。

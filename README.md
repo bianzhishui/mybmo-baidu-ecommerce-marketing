@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.9.1-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.9.2-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.9.1` |
+| 版本 | `1.9.2` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | 由 `uv` 执行（首次自动准备环境）；依赖声明在脚本头部（PEP 723）；macOS / Linux / Windows |
@@ -258,13 +258,15 @@ mybmo-baidu-ecommerce-marketing/
 ├── agents/MyBMO.md                 # 专家人设：能力、数据工具、SOP、边界
 ├── skills/baidu-marketing-api/
 │   ├── SKILL.md                    # 能力入口：自检、命令、字段、边界
+│   ├── README.md                   # 单独装这个 skill 时的安装说明
 │   ├── runtime.json                # 运行方式、uv 安装命令、凭据目录
 │   ├── references/
 │   │   ├── keyword-sop.md          # 图片转投流关键词的 SOP（Agent 用）
 │   │   ├── auth-sop.md             # 鉴权的交互 SOP（Agent 用）
 │   │   ├── auth.md                 # 鉴权技术细节与多账户
 │   │   ├── onboarding.md           # 全新电脑上手（给人看）
-│   │   └── api-index.md            # 133 服务 / 389 接口索引
+│   │   ├── write-rules.md          # 写操作行为规范（唯一真源）
+│   │   └── api-index.md            # 129 服务 / 389 接口索引
 │   └── scripts/
 │       ├── bmctl.py                # CLI 薄壳
 │       └── bmclient/               # 核心库（运行时依赖见 bmctl.py 头部）
@@ -277,7 +279,8 @@ mybmo-baidu-ecommerce-marketing/
 │           ├── render.py           # JSON / Markdown 输出
 │           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制 / write 写操作
 ├── tests/                          # pytest：渲染 / 错误码 / 凭据 / CLI 冒烟
-├── tools/build-zip.sh              # 一键生成可上传到开发平台的 zip
+├── tools/build-zip.sh              # 一键产出专家包 + skill 包两个 zip
+├── tools/package_skill.py          # skill 包打包（带排除规则，版本取自 plugin.json）
 ├── pyproject.toml                  # 仅开发：dev 依赖 pytest、ruff，pytest/ruff 配置
 ├── uv.lock                         # 仅开发：开发工具链锁文件
 ├── .python-version                 # 仅开发：锁定开发用 Python 3.13
@@ -287,13 +290,13 @@ mybmo-baidu-ecommerce-marketing/
 
 ## 本地开发
 
-用 `uv` 管理开发环境。脚本由 `uv run` 执行，运行时依赖声明在 bmctl.py 头部；用户端由 uv 在自己的缓存里
-准备环境）；`pytest` / `ruff` 只在开发时用。上面那三个文件（`pyproject.toml` / `uv.lock` /
-`.python-version`）**都是开发用的，不进分发包**。
+用 `uv` 管理开发环境。脚本由 `uv run` 执行，运行时依赖声明在 bmctl.py 头部，用户端由 uv
+在自己的缓存里准备环境；`pytest` / `ruff` 只在开发时用。上面那三个文件（`pyproject.toml` /
+`uv.lock` / `.python-version`）**都是开发用的，不进分发包**。
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 140 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 145 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
@@ -333,14 +336,20 @@ rsync -a --delete \
 > 运行时真正加载的是 `~/.workbuddy/plugins/cache/my-experts/mybmo-baidu-ecommerce-marketing/<version>/`，
 > 只改市场源不升版本号，缓存不会重建。
 
-## 打包上传到开发平台
+## 打包
 
 ```bash
 ./tools/build-zip.sh
-# → dist/mybmo-baidu-ecommerce-marketing.zip（文件数与体积以脚本输出为准）
 ```
 
-脚本走的是 WorkBuddy 官方 `expert-manager` 的四步流程：
+一次产出**两个** zip，文件数与体积以脚本输出为准：
+
+| 产物 | 给谁 | 内含 |
+|---|---|---|
+| `dist/mybmo-baidu-ecommerce-marketing.zip` | 上传开发平台，装成完整专家 | 专家人设 + 头像 + 技能 |
+| `dist/baidu-marketing-api-<version>.zip` | 单独分发给只想用取数能力的人 | 只有一个技能目录 |
+
+专家包走 WorkBuddy 官方 `expert-manager` 的流程：
 
 ```
 同步 → 校验（validate_expert.py）→ 注册（register_expert.py）→ 打包（package_expert.py）
@@ -351,7 +360,7 @@ rsync -a --delete \
 直接对本仓库目录打包会被判为"专家不在专家目录下"而失败。脚本会先同步一份干净的
 运行时副本过去，再对它校验和打包。
 
-**包里有什么**：`plugin.json`、`README.md`、`agents/`、`avatars/`、`skills/`。
+**专家包里有什么**：`plugin.json`、`README.md`、`agents/`、`avatars/`、`skills/`。
 
 打包用的是**白名单**同步（只 include 上面这几项，最后 `--exclude '*'`），所以
 `tests/`、`tools/`、`pyproject.toml`、`uv.lock`、`.python-version`、`.venv`、`.git`
@@ -360,7 +369,12 @@ rsync -a --delete \
 
 脚本还会检查包根目录：除 `README.md` 外出现任何文件即中止打包。
 
-zip 内部结构是单个顶层目录，上传时不要额外套壳：
+**skill 包**由 `tools/package_skill.py` 打，不用官方的 `package_skill.py`——官方版本
+`rglob('*')` 全收，跑过一次脚本就会把 `scripts/__pycache__/` 带进包。我们这份带排除规则，
+并在打包前补三条硬检查（`SKILL.md`、`runtime.json`、`scripts/bmctl.py` 必须存在），
+再调官方 `quick_validate.py` 校验 frontmatter。版本号从 `plugin.json` 读，不写死。
+
+两个 zip 内部都是单个顶层目录，上传/解压时不要额外套壳：
 
 ```
 mybmo-baidu-ecommerce-marketing/
