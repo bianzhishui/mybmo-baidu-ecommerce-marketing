@@ -2,7 +2,7 @@
 
 import json
 
-from bmclient import render
+import render
 
 
 def test_list_of_dicts_becomes_table():

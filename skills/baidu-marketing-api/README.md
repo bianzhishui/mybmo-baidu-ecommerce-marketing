@@ -78,9 +78,19 @@ baidu-marketing-api/
 │   ├── keyword-sop.md        # 图片转投流关键词 SOP（Agent 用）
 │   ├── write-rules.md        # 写操作行为规范（唯一真源）
 │   └── api-index.md          # 129 个服务 / 389 个接口索引
-└── scripts/
+└── scripts/                  # 全部平铺：开放平台限两级目录，不留子包
     ├── bmctl.py              # CLI 入口（参数解析 + 输出渲染）
-    └── bmclient/             # 核心库：鉴权、传输、服务封装、审批
+    ├── config.py             # 多账户凭据
+    ├── auth.py               # 令牌刷新 / 授权码换取
+    ├── transport.py          # HTTP + 鉴权 + 重试
+    ├── approval.py           # 写操作审批指纹
+    ├── oauthserver.py        # 内置回调服务
+    ├── render.py             # JSON / Markdown 输出
+    ├── errors.py             # 错误码释义
+    ├── svc_account.py        # 账户 / 余额
+    ├── svc_kr.py             # 关键词拓词
+    ├── svc_transfer.py       # 跨账户复制
+    └── svc_write.py          # 写操作
 ```
 
 ## 凭据放在哪

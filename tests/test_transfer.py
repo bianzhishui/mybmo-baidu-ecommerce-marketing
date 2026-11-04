@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from bmclient.errors import ApprovalRequired, WriteFailed, WriteNotPermitted
-from bmclient.services import transfer, write
+import svc_transfer as transfer
+import svc_write as write
+from errors import ApprovalRequired, WriteFailed, WriteNotPermitted
 
 
 class FakeClient:

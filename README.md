@@ -267,16 +267,19 @@ mybmo-baidu-ecommerce-marketing/
 │   │   ├── onboarding.md           # 全新电脑上手（给人看）
 │   │   ├── write-rules.md          # 写操作行为规范（唯一真源）
 │   │   └── api-index.md            # 129 服务 / 389 接口索引
-│   └── scripts/
+│   └── scripts/                    # 全部平铺（平台上传限两级目录，不留子包）
 │       ├── bmctl.py                # CLI 薄壳
-│       └── bmclient/               # 核心库（运行时依赖见 bmctl.py 头部）
-│           ├── config.py           # 多账户凭据解析
-│           ├── auth.py             # 令牌刷新 / 授权码换取
-│           ├── oauthserver.py      # 内置回调服务
-│           ├── approval.py         # 写操作审批指纹（预览 → digest → 执行）
-│           ├── transport.py        # HTTP + 鉴权 + 重试
-│           ├── errors.py           # 错误码释义
-│           ├── render.py           # JSON / Markdown 输出
+│       ├── config.py               # 多账户凭据解析
+│       ├── auth.py                 # 令牌刷新 / 授权码换取
+│       ├── oauthserver.py          # 内置回调服务
+│       ├── approval.py             # 写操作审批指纹（预览 → digest → 执行）
+│       ├── transport.py            # HTTP + 鉴权 + 重试
+│       ├── errors.py               # 错误码释义
+│       ├── render.py               # JSON / Markdown 输出
+│       ├── svc_account.py          # 账户 / 余额
+│       ├── svc_kr.py               # 关键词拓词
+│       ├── svc_transfer.py         # 跨账户复制
+│       └── svc_write.py            # 写操作
 │           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制 / write 写操作
 ├── tests/                          # pytest：渲染 / 错误码 / 凭据 / CLI 冒烟
 ├── tools/build-zip.sh              # 一键产出专家包 + skill 包两个 zip
@@ -319,7 +322,7 @@ AssertionError: 测试污染了真实审计目录！
 > 直接依赖 conftest 的隔离即可，**不要**在用例里 `delenv("BM_HOME")`。
 
 > `pyproject.toml` 标了 `package = false`（虚拟项目）：不打包、不安装。
-> 因为插件靠 `bmctl.py` 里的 `sys.path` 注入加载 `bmclient`，加 build-system 反而会
+> 因为插件靠 `bmctl.py` 里的 `sys.path` 注入加载同目录模块，加 build-system 反而会
 > 让「单文件脚本 + 内联元数据」的模型变形。
 
 改完源码后，需要同步到 WorkBuddy 的插件目录并让缓存重建才能生效：

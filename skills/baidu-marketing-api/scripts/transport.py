@@ -14,8 +14,8 @@ import time
 import urllib.error
 import urllib.request
 
-from . import auth
-from .errors import BaiduApiError, CredentialError, DryRunRequested
+import auth
+from errors import BaiduApiError, CredentialError, DryRunRequested
 
 SMS_BASE = "https://api.baidu.com/json/sms/service"
 FEED_BASE = "https://api.baidu.com/json/feed/v1"

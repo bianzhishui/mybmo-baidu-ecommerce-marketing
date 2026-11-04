@@ -80,3 +80,15 @@ def test_version_defaults_to_plugin_json(packager):
     )["version"]
 
     assert packager.plugin_version() == expected
+
+
+def test_package_stays_within_two_levels(packager):
+    """开放平台上传校验：Skill 包只允许「根 / 二级目录 / 文件」。
+
+    超限会被拒：「目录层级超限 — Skill 包仅支持两级目录结构」。
+    用打包时的同一个过滤器检查，保证判的就是真正会进包的那批文件。
+    """
+    skill = ROOT / "skills" / "baidu-marketing-api"
+    offenders = [str(rel) for _, rel in packager.iter_files(skill) if len(rel.parts) > 2]
+
+    assert offenders == [], "以下文件超过两级目录：\n" + "\n".join(offenders)

@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import copy
 
-from .. import approval
-from ..errors import BaiduApiError, WriteFailed, WriteNotPermitted
-from . import write as write_ops
+import approval
+import svc_write as write_ops
+from errors import BaiduApiError, WriteFailed, WriteNotPermitted
 
 # 跨账户时必须剔除的字段：任何以 Id 结尾的、以及账户/用户标识
 ID_SUFFIXES = ("Id", "Ids", "ID", "IDs")

@@ -29,6 +29,21 @@ BMCTL = SKILL_DIR / "scripts" / "bmctl.py"
 RUNTIME_JSON = SKILL_DIR / "runtime.json"
 PYPROJECT = ROOT / "pyproject.toml"
 
+# scripts/ 下的平铺模块（曾经是 bmclient 包，为了满足平台两级目录限制改成平铺）
+LOCAL_MODULES = {
+    "approval",
+    "auth",
+    "config",
+    "errors",
+    "oauthserver",
+    "render",
+    "svc_account",
+    "svc_kr",
+    "svc_transfer",
+    "svc_write",
+    "transport",
+}
+
 needs_tomllib = pytest.mark.skipif(tomllib is None, reason="需要 3.11+ 的 tomllib")
 
 
@@ -135,7 +150,7 @@ def test_runtime_deps_are_mirrored_to_dev_group():
 
 
 def test_no_third_party_toplevel_imports():
-    """模块级 import 只允许标准库与 bmclient；第三方依赖必须惰性导入。
+    """模块级 import 只允许标准库与本地平铺模块；第三方依赖必须惰性导入。
 
     这样在依赖没装的环境里，核心命令仍然可用，只有用到该功能的子命令才报错。
     """
@@ -145,10 +160,10 @@ def test_no_third_party_toplevel_imports():
     if stdlib is None:
         pytest.skip("需要 3.10+ 的 sys.stdlib_module_names")
 
-    allowed = set(stdlib) | {"bmclient"}
+    allowed = set(stdlib) | LOCAL_MODULES
     offenders = []
 
-    for path in [BMCTL, *sorted((SKILL_DIR / "scripts" / "bmclient").rglob("*.py"))]:
+    for path in sorted((SKILL_DIR / "scripts").glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in tree.body:
             if isinstance(node, ast.Import):
@@ -262,10 +277,11 @@ def test_guard_end_to_end_exits_6_without_traceback(tmp_dir):
     assert "Traceback" not in proc.stderr
 
 
-def test_guard_runs_before_bmclient_import():
+def test_guard_runs_before_local_imports():
+    """守卫失败时不能有任何本地模块被导入——否则低版本会先撞上 ImportError 裸栈。"""
     src = BMCTL.read_text(encoding="utf-8")
 
-    assert src.index("_check_python()") < src.index("from bmclient import")
+    assert src.index("_check_python()") < src.index("import approval")
 
 
 def test_no_future_annotations_import():

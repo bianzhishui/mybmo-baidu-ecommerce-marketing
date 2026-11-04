@@ -15,8 +15,8 @@ import time
 import urllib.error
 import urllib.request
 
-from .config import Credential
-from .errors import CredentialError
+from config import Credential
+from errors import CredentialError
 
 OAUTH_BASE = "https://u.baidu.com/oauth"
 TIMEOUT = 15

@@ -95,16 +95,19 @@ if _min_python_status:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from bmclient import (  # noqa: E402
-    BaiduClient,
-    approval,
-    auth,
-    config,
-    load_credential,
-    oauthserver,
-    render,
-)
-from bmclient.errors import (  # noqa: E402
+# 平铺模块：技能包上传到开放平台时只允许「根/二级/文件」两层目录，
+# 这里刻意不留 bmclient 包，避免 scripts/bmclient/xxx.py 这类三层路径。
+import approval  # noqa: E402
+import auth  # noqa: E402
+import config  # noqa: E402
+import oauthserver  # noqa: E402
+import render  # noqa: E402
+import svc_account as account  # noqa: E402
+import svc_kr as kr  # noqa: E402
+import svc_transfer as transfer  # noqa: E402
+import svc_write as write  # noqa: E402
+from config import load_credential  # noqa: E402
+from errors import (  # noqa: E402
     ApprovalRequired,
     BaiduApiError,
     CredentialError,
@@ -112,7 +115,7 @@ from bmclient.errors import (  # noqa: E402
     WriteFailed,
     WriteNotPermitted,
 )
-from bmclient.services import account, kr, transfer, write  # noqa: E402
+from transport import BaiduClient  # noqa: E402
 
 
 def _common_parser():

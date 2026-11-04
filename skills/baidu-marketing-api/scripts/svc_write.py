@@ -10,7 +10,7 @@ CLI 打印 URL 与完整报文）。所以这里的函数不需要 `dry_run` 参
 CLI 决定 client 的 dry_run 属性，故意保持一致，避免两处开关打架。
 
 **审批闸门**：执行必须带 `confirm=<digest>`，digest 来自同一条命令的预览输出。
-没有 confirm 或 digest 对不上，一律拒绝执行且不落审计。详见 `bmclient/approval.py`。
+没有 confirm 或 digest 对不上，一律拒绝执行且不落审计。详见 `approval.py`。
 
 ⚠️ 字段名以百度营销 SMS 接口为准，当前环境无「投放管理」权限，**未经真实账户验证**。
 首次使用务必先跑不带 `--execute` 的预览，逐字段核对后再放行。
@@ -26,8 +26,9 @@ import sys
 import time
 from pathlib import Path
 
-from .. import approval, config
-from ..errors import BaiduApiError, DryRunRequested, WriteNotPermitted
+import approval
+import config
+from errors import BaiduApiError, DryRunRequested, WriteNotPermitted
 
 # ---------- 请求信封 ----------
 # 百度 SMS 接口的 body 统一是 {信封名: [条目...]}。信封名写错会报 99912「JSON invalid」，

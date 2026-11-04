@@ -2,8 +2,8 @@
 
 import pytest
 
-from bmclient import approval
-from bmclient.errors import ApprovalRequired
+import approval
+from errors import ApprovalRequired
 
 STEPS = [{"service": "KeywordService", "method": "addWord",
           "body": {"keywordTypes": [{"adgroupId": 9, "word": "月季"}]}}]

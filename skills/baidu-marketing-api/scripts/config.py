@@ -29,7 +29,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .errors import CredentialError
+from errors import CredentialError
 
 DEFAULT_HOME = Path.home() / ".baidu-marketing"
 ACCOUNTS_DIRNAME = "accounts"

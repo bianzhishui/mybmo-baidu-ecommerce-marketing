@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from bmclient import config
-from bmclient.errors import CredentialError
+import config
+from errors import CredentialError
 
 
 @pytest.fixture

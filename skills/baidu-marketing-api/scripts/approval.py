@@ -24,7 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from .errors import ApprovalRequired
+from errors import ApprovalRequired
 
 DIGEST_LEN = 16
 

@@ -1,6 +1,6 @@
 """错误码释义与 dry-run 报文脱敏。"""
 
-from bmclient.errors import BaiduApiError, DryRunRequested
+from errors import BaiduApiError, DryRunRequested
 
 
 def test_hint_for_known_code():

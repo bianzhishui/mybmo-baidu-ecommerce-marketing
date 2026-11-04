@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from bmclient import approval
-from bmclient.errors import ApprovalRequired, BaiduApiError, DryRunRequested, WriteNotPermitted
-from bmclient.services import write
+import approval
+import svc_write as write
+from errors import ApprovalRequired, BaiduApiError, DryRunRequested, WriteNotPermitted
 
 
 class FakeClient:

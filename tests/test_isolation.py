@@ -11,8 +11,8 @@
 import os
 from pathlib import Path
 
-from bmclient import config
-from bmclient.services import write
+import config
+import svc_write as write
 
 REAL_HOME = Path.home() / ".baidu-marketing"
 
