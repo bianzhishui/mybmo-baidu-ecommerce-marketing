@@ -8,7 +8,7 @@
 只做三件事：解析参数、调用 services、渲染输出。
 不含任何业务逻辑与网络细节，保证这层足够薄。
 
-账户模型：一个 alias = 一个推广账户 = 一份独立凭据，凭据自持，不依赖任何外部库。
+账户模型：一个 alias = 一个推广账户 = 一份独立凭据，凭据自持，不依赖外部服务。
     uv run bmctl.py auth exchange --code <authCode> --app-id <AppID> \
         --secret-key <SecretKey> --user-id <userId> --user-name "<账户中文名>" --alias wds02
     uv run bmctl.py accounts list
@@ -26,7 +26,7 @@
     推荐 `uv run bmctl.py <子命令>`。文件头的内联元数据（PEP 723）声明了依赖与
     Python 下限，uv 会据此准备一个隔离环境，不污染系统，也不需要 pip install。
     降级：机器上已有 Python 3.9+ 且 uv 不可用时，`python3 bmctl.py` 行为完全一致
-    （当前 dependencies 为空，纯标准库即可跑）。
+    （dependencies 为空时，无需安装任何包即可直接运行）。
 """
 
 import argparse

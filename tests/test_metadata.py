@@ -135,3 +135,32 @@ def test_build_zip_ends_with_exclude_all():
 
     assert block.count("--exclude '*'") == 1
     assert block.index("--exclude '*'") > block.index("--include '/README.md'")
+
+
+# ---------- 依赖表述 ----------
+
+
+ABSOLUTE_CLAIMS = ("零依赖", "零第三方依赖", "纯标准库", "不依赖任何外部库")
+
+
+def test_no_absolute_dependency_claims():
+    """这些说法加库当天就会变假。
+
+    要表达「没依赖」，写「依赖声明在脚本头部」；要表达「用户不用装」，
+    写「不需要 pip install」——这两句永远成立，不会随依赖增减失效。
+    """
+    targets = (
+        _markdown_files()
+        + sorted((ROOT / "skills").rglob("*.py"))
+        + sorted((ROOT / "agents").rglob("*.md"))
+    )
+
+    offenders = []
+    for path in targets:
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for phrase in ABSOLUTE_CLAIMS:
+                if phrase in line:
+                    offenders.append(f"{path.relative_to(ROOT)}:{lineno} 含「{phrase}」")
+
+    assert offenders == [], "\n".join(offenders)

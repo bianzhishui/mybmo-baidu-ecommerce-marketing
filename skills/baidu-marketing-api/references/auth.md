@@ -107,7 +107,7 @@ uv run scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid
 `--max N` 接满即退；`--once` 等价 `--max 1`；不传 `--user-name` 时自动调 `getUserInfo` 取账户中文名。
 
 **安全边界**：默认只监听 `127.0.0.1`（公网靠隧道；容器场景可 `--host 0.0.0.0`，会告警），强制校验 state 的 base 部分，**不验签**
-（AES 需第三方库，会破坏零依赖）。风险可控：换令牌还要服务端持有的 secretKey，
+（AES 需额外引入第三方库，为可选校验不值）。风险可控：换令牌还要服务端持有的 secretKey，
 且 authCode 一次性，伪造回调换不出令牌。
 
 隧道或反代跑在**容器 / 另一台机器**时，默认的 `127.0.0.1` 收不到转发，需加 `--host 0.0.0.0`。

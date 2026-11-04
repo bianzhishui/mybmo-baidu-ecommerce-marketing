@@ -25,7 +25,7 @@
 | 版本 | `1.9.0` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
-| 运行时 | 由 `uv` 执行（首次自动准备环境）；零第三方依赖；macOS / Linux / Windows |
+| 运行时 | 由 `uv` 执行（首次自动准备环境）；依赖声明在脚本头部（PEP 723）；macOS / Linux / Windows |
 
 装进 WorkBuddy 后，在专家中心选中 **MyBMO** 即可对话；它会在需要取数时自动调用内置技能，不需要你手动敲命令。
 
@@ -60,7 +60,7 @@
 | 执行器 | **uv**（三平台同一条命令）。Python 版本由 uv 按脚本头部的内联元数据自动选择 |
 | Python | 脚本声明 `requires-python = ">=3.9"`；uv 会用已装的合适版本，没有才下载 |
 | 实测版本 | 3.9.6 / 3.13.12 / 3.14.2（三档各跑完整测试套件） |
-| 依赖 | **零第三方依赖**（纯标准库）。首次运行 uv 会在自己的缓存里准备隔离环境，不需要 `pip install` |
+| 依赖 | 声明在 `bmctl.py` 头部的 PEP 723 块里，uv 据此在自己的缓存里准备隔离环境；用户不需要 `pip install` |
 | 平台 | macOS / Linux / Windows，命令完全一致 |
 
 装 uv（一次性）：
@@ -267,7 +267,7 @@ mybmo-baidu-ecommerce-marketing/
 │   │   └── api-index.md            # 133 服务 / 389 接口索引
 │   └── scripts/
 │       ├── bmctl.py                # CLI 薄壳
-│       └── bmclient/               # 核心库（纯标准库；运行时依赖见 bmctl.py 头部）
+│       └── bmclient/               # 核心库（运行时依赖见 bmctl.py 头部）
 │           ├── config.py           # 多账户凭据解析
 │           ├── auth.py             # 令牌刷新 / 授权码换取
 │           ├── oauthserver.py      # 内置回调服务
@@ -287,7 +287,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ## 本地开发
 
-用 `uv` 管理开发环境。运行时零第三方依赖，脚本由 `uv run` 执行（用户端由 uv 在自己的缓存里
+用 `uv` 管理开发环境。脚本由 `uv run` 执行，运行时依赖声明在 bmctl.py 头部；用户端由 uv 在自己的缓存里
 准备环境）；`pytest` / `ruff` 只在开发时用。上面那三个文件（`pyproject.toml` / `uv.lock` /
 `.python-version`）**都是开发用的，不进分发包**。
 
@@ -383,7 +383,7 @@ EXPERT_MANAGER_DIR=/path/to/skills/expert-manager/scripts ./tools/build-zip.sh
 ## 安全与隐私
 
 - **凭据不入库**：令牌只存在本机 `~/.workbuddy/baidu-marketing/accounts/`，`.gitignore` 已排除 `accounts/`、`*.token`、`.env`。
-- **运行时零第三方依赖**：纯标准库，执行器只有 `uv` 一个可执行文件（`pytest` / `ruff` 仅开发时使用），供应链面最小。
+- **依赖面可控**：执行器只有 `uv` 一个可执行文件，运行时依赖集中声明在脚本头部并用 `==` 精确 pin；`pytest` / `ruff` 仅开发时使用。
 - **写操作强制两步审批**：预览拿 digest 才能执行，没预览或报文被改过一律拒绝（退出码 4）；权限不足时本地拦截（退出码 3），不发出半截请求。
 - **写操作留痕**：每次真实写入追加到 `~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，含账户、动作、物料、完整报文与审批 digest，出问题可按天回溯。
 - **批量有上限**：单次 200 词 / 20 计划 / 50 单元，超限直接拒绝而不是替你分批跑——改太多出错时无法人工核对。
