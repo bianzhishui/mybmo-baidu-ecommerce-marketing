@@ -13,13 +13,6 @@ from bmclient.errors import ApprovalRequired, WriteFailed, WriteNotPermitted
 from bmclient.services import transfer, write
 
 
-@pytest.fixture(autouse=True)
-def _isolate_bm_home(tmp_dir, monkeypatch):
-    """审计会真的落盘。不隔离就会把测试假数据写进用户真实审计目录——
-    这个坑真踩过：50 条 alias=target 的假记录混进了 ~/.workbuddy/baidu-marketing/audit。"""
-    monkeypatch.setenv("BM_HOME", str(tmp_dir))
-
-
 class FakeClient:
     def __init__(self, responses=None):
         self.cred = SimpleNamespace(alias="target", user_name="目标账户")

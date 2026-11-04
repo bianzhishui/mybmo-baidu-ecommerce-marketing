@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.7.4-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.7.5-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.7.4` |
+| 版本 | `1.7.5` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | Python 3 标准库，**零第三方依赖** |
@@ -247,13 +247,27 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 101 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 104 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
 
 测试通过 `BM_HOME` 环境变量把凭据目录重定向到临时目录，**不会读写你真实的
 `~/.workbuddy/baidu-marketing/`**。
+
+这条隔离是**默认生效**的：`tests/conftest.py` 用 autouse fixture 给每个用例设好临时
+`BM_HOME`，不靠各测试文件自己记得。另有一层兜底——整个会话跑完会比对真实审计目录，
+被改动过就当场失败并指出是哪个文件：
+
+```
+AssertionError: 测试污染了真实审计目录！
+  目录: ~/.workbuddy/baidu-marketing/audit
+  新增: ['2026-11-04.jsonl']
+```
+
+> 加这条护栏是因为真踩过：某个测试漏设 `BM_HOME`，50 条假记录写进真实审计目录，
+> 把「审计可追溯」这件事本身弄脏了。新写涉及落盘副作用的测试时，
+> 直接依赖 conftest 的隔离即可，**不要**在用例里 `delenv("BM_HOME")`。
 
 > `pyproject.toml` 标了 `package = false`（虚拟项目）：不打包、不安装。
 > 因为插件靠 `bmctl.py` 里的 `sys.path` 注入加载 `bmclient`，加 build-system 反而会
