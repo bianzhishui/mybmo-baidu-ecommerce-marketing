@@ -10,16 +10,21 @@
 为什么必须去 id：计划/单元/关键词的 id 是账户内唯一的，把 A 的 id 带到 B
 会直接被拒或写到错误的物料上。strip_ids() 是这里唯一不能省的一步。
 
-⚠️ 重要：读接口（get_*）与写接口（add_*）都需要「投放管理」权限。
-当前应用只有「工具」域，实际调用会返回 89406。本模块的接口参数以百度
-官方文档为准，首次使用前务必先 --dry-run 打印报文人工核对。
+写操作（--execute）按 campaign → adgroup → keyword → creative 逐级创建，
+**每级都要用上一级接口返回的新 id**。这不是可以批量拼完再一次性发出的请求，
+必须串行——所以 apply() 在 execute 模式下是一棵依赖树，不是一串独立报文。
+
+⚠️ 读接口（get_*）与写接口（add_*）都需要「投放管理」权限。
+当前应用只有「工具」域时会返回 89406，错误会被翻译成 WriteNotPermitted。
+本模块的字段以百度官方文档为准，首次使用前务必先 --dry-run 打印报文人工核对。
 """
 
 from __future__ import annotations
 
 import copy
 
-from ..errors import WriteNotPermitted
+from ..errors import BaiduApiError, WriteNotPermitted
+from . import write as write_ops
 
 # 跨账户时必须剔除的字段：任何以 Id 结尾的、以及账户/用户标识
 ID_SUFFIXES = ("Id", "Ids", "ID", "IDs")
@@ -147,17 +152,12 @@ def _apply_name(config, key, name):
         config[key] = name
 
 
-def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True):
-    """在目标账户按新 id 逐级重建。默认 dry_run，只有显式传 False 才会写。
+def build_steps(plan, *, product_line="sms"):
+    """把中性方案展开成待执行报文。
 
-    返回每一步的执行结果，便于核对是哪一层失败。
+    预览与真实执行共用这一份，避免「预览看到的」和「实际发出的」不一致。
     """
-    if not dry_run:
-        raise WriteNotPermitted(
-            "写操作暂未开放：当前应用只有「工具」域权限，投放管理接口（addCampaign 等）"
-            "会返回 89406。请先在开发者后台补开权限域并重新授权，再移除这里的保护。"
-        )
-
+    _require_writable_line(product_line)
     steps = []
     for campaign in plan.get("campaigns") or []:
         steps.append(
@@ -168,7 +168,7 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True)
                 "method": "addCampaign",
                 # apply 也要再 strip 一次：plan 可能来自外部文件，未经 describe 清洗。
                 # id 泄漏到目标账户是跨账户复制最危险的错误，必须双重保险。
-                "body": strip_ids(campaign.get("config")),
+                "body": {write_ops.ENVELOPES["campaign"]: [strip_ids(campaign.get("config"))]},
             }
         )
         for group in campaign.get("adgroups") or []:
@@ -179,42 +179,135 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True)
                     "parent": campaign["name"],
                     "service": "AdgroupService",
                     "method": "addAdgroup",
-                    "body": strip_ids(group.get("config")),
+                    "body": {write_ops.ENVELOPES["adgroup"]: [strip_ids(group.get("config"))]},
                 }
             )
-            for word in group.get("keywords") or []:
+            words = [strip_ids(w) for w in group.get("keywords") or []]
+            if words:
                 steps.append(
                     {
                         "level": "keyword",
-                        "name": word.get("word"),
                         "parent": group["name"],
+                        "count": len(words),
                         "service": "KeywordService",
                         "method": "addWord",
-                        "body": strip_ids(word),
+                        "body": {write_ops.ENVELOPES["keyword"]: words},
                     }
                 )
-            for creative in group.get("creatives") or []:
+            creatives = [strip_ids(c) for c in group.get("creatives") or []]
+            if creatives:
                 steps.append(
                     {
                         "level": "creative",
                         "parent": group["name"],
+                        "count": len(creatives),
                         "service": "CreativeService",
                         "method": "addCreative",
-                        "body": strip_ids(creative),
+                        "body": {write_ops.ENVELOPES["creative"]: creatives},
                     }
                 )
+    return steps
 
+
+def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True):
+    """在目标账户按新 id 逐级重建。默认 dry_run，只有显式传 False 才会写。
+
+    dry_run=True：只返回待执行报文，不发请求。
+    dry_run=False：串行写入，每级用上一级返回的新 id 串联；返回已创建物料的 id。
+    """
+    _require_writable_line(product_line)
+    steps = build_steps(plan, product_line=product_line)
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "target": {"alias": client.cred.alias, "user_name": client.cred.user_name},
+            "product_line": product_line,
+            "stats": summarize_plan(plan),
+            "steps": steps,
+            "notice": (
+                "以上为待执行报文，未发送。确认无误后加 --execute 才会真正写入。"
+                "重点核对价格、地域、落地页 URL 与否定词——写错了只能手工回滚。"
+            ),
+        }
+
+    return _execute(client, plan, stop_on_error=stop_on_error)
+
+
+def _execute(client, plan, *, stop_on_error=True):
+    """串行写入：计划 → 单元 → 关键词 / 创意，逐级注入父级 id。"""
+    created = {"campaigns": [], "adgroups": [], "keywords": 0, "creatives": 0}
+    errors = []
+
+    for campaign in plan.get("campaigns") or []:
+        try:
+            data = write_ops.call_raw(
+                client, "campaign", "CampaignService", "addCampaign",
+                [strip_ids(campaign.get("config"))],
+            )
+            cid = _pick_id(data, "campaignId", f"计划「{campaign['name']}」")
+            created["campaigns"].append({"name": campaign["name"], "campaignId": cid})
+
+            for group in campaign.get("adgroups") or []:
+                gcfg = strip_ids(group.get("config"))
+                gcfg["campaignId"] = cid
+                data = write_ops.call_raw(
+                    client, "adgroup", "AdgroupService", "addAdgroup", [gcfg],
+                )
+                aid = _pick_id(data, "adgroupId", f"单元「{group['name']}」")
+                created["adgroups"].append(
+                    {"name": group["name"], "adgroupId": aid, "campaignId": cid}
+                )
+
+                words = [strip_ids(w) for w in group.get("keywords") or []]
+                if words:
+                    for word in words:
+                        word["adgroupId"] = aid
+                    write_ops.call_raw(
+                        client, "keyword", "KeywordService", "addWord", words,
+                    )
+                    created["keywords"] += len(words)
+
+                creatives = [strip_ids(c) for c in group.get("creatives") or []]
+                if creatives:
+                    for creative in creatives:
+                        creative["adgroupId"] = aid
+                    write_ops.call_raw(
+                        client, "creative", "CreativeService", "addCreative", creatives,
+                    )
+                    created["creatives"] += len(creatives)
+
+        except (BaiduApiError, WriteNotPermitted, ValueError) as exc:
+            errors.append({"campaign": campaign.get("name"), "error": str(exc)})
+            if stop_on_error:
+                raise
     return {
-        "dry_run": True,
+        "dry_run": False,
         "target": {"alias": client.cred.alias, "user_name": client.cred.user_name},
-        "product_line": product_line,
-        "stats": summarize_plan(plan),
-        "steps": steps,
-        "notice": (
-            "以上为待执行报文，未发送。写接口需要投放管理权限，"
-            "且 execute 前必须人工核对字段（尤其价格、地域、落地页 URL）。"
-        ),
+        "created": created,
+        "errors": errors,
+        "audit": str(write_ops.audit_path()),
     }
+
+
+def _pick_id(data, key, label):
+    """从 add* 的返回里取新建物料的 id。取不到就停，绝不猜一个。"""
+    candidates = data if isinstance(data, list) else [data]
+    for item in candidates:
+        if isinstance(item, dict) and item.get(key):
+            return item[key]
+    raise WriteNotPermitted(
+        f"{label} 创建后接口未返回 {key}，无法继续下级写入。"
+        f"已创建的物料需要在后台手工清理。原始返回：{str(data)[:300]}"
+    )
+
+
+def _require_writable_line(product_line):
+    if product_line != "sms":
+        raise WriteNotPermitted(
+            "信息流（feed）写操作暂未支持：信封名与 SMS 不同（campaignFeedTypes 等），"
+            "需要单独适配后再开放。当前请用 sms 产品线，或用 call 接口自行透传。"
+        )
 
 
 def clone(source_client, target_client, campaign_ids, *,

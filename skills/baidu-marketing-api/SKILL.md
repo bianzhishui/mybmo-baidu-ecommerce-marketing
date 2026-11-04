@@ -4,18 +4,22 @@ description: |
   百度营销开放平台数据能力：多账户管理（一个 alias 一个推广账户，切换账户与令牌刷新）、
   关键词规划师拓词（搜索量/竞争度/推荐出价）、按商品图产出可投流的关键词分组方案、
   账户与余额查询、跨账户复制投放方案（把 A 账户的计划/关键词/创意在 B 账户重建）、
+  写操作（加词、改出价与匹配模式、启停计划/单元、调预算，默认 dry-run）、
   以及任意百度营销接口的通用透传调用。
-  当需要真实关键词数据、多账户数据、或把某账户的投放复制到另一账户时使用。
+  当需要真实关键词数据、多账户数据、把某账户的投放复制到另一账户、或把方案真正写进账户时使用。
   触发词：关键词拓词、关键词规划师、拉取关键词数据、按图拓词、图片转关键词、投流词包、
   关键词分组、投流分组、多账户、切换账户、账户列表、账户余额、跨账户复制、投放复制、
-  搬投放、百度营销API、百度推广接口、搜索量、竞争度、推荐出价。
+  搬投放、加词、添加关键词、改出价、调价、暂停计划、启用计划、调预算、写操作、
+  百度营销API、百度推广接口、搜索量、竞争度、推荐出价。
 description_en: |
-  Baidu Marketing Open Platform data access with multi-account support: manage several ad
+  Baidu Marketing Open Platform access with multi-account support: manage several ad
   accounts by alias with independent credentials, keyword planning (search volume, competition,
   recommended bids), turning product images into ready-to-launch keyword groups, account and
-  balance queries, cross-account campaign cloning, and a generic passthrough for any Baidu
-  Marketing API endpoint. Use when real keyword data, multi-account data, or copying a campaign
-  from one account to another is needed.
+  balance queries, cross-account campaign cloning, write operations (add keywords, change bids
+  and match types, pause or enable campaigns and adgroups, adjust budgets — dry-run by default),
+  and a generic passthrough for any Baidu Marketing API endpoint. Use when real keyword data,
+  multi-account data, copying a campaign between accounts, or actually applying changes to an
+  account is needed.
 ---
 
 # 百度营销 API 数据能力
@@ -100,6 +104,11 @@ python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者ui
 | `account info` / `account balance` | 账户信息 / 余额 |
 | `transfer describe --from-account A` | 从 A 账户导出投放结构 |
 | `transfer clone --from-account A --to-account B` | 跨账户复制投放方案 |
+| `write word-add --adgroup-id 9 --words "月季,玫瑰花"` | 加词（可带价与匹配模式） |
+| `write word-update --items '[...]'` | 改关键词出价 / 匹配 / 启停 |
+| `write word-delete --word-ids 11,22` | 按 id 删词 |
+| `write campaign-update --campaign-id 1 --budget 300` | 改计划预算 / 启停 |
+| `write adgroup-update --adgroup-id 9 --price 2.5` | 改单元出价 / 启停 |
 | `call --service X --method y --body '{...}'` | 通用透传任意接口 |
 
 透传时方法名支持小写蛇形，脚本自动转驼峰：
@@ -159,6 +168,49 @@ python3 scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd -
 3. **写操作默认关闭**。不加 `--execute` 只打印；权限不足时会被本地拦住（退出码 3），
    不会打出半截请求污染目标账户。
 
+`--execute` 时是**串行写入**：计划 → 单元 → 关键词 / 创意，每级用上一级接口返回的新 id
+挂接。取不到 id 会立即中止并报错——不会猜一个 id 继续写下去，也不会静默跳过。
+
+## 五点五、写操作
+
+支持直接改账户：加词、改价、改匹配、启停、改预算。**所有写命令默认只打印报文，
+加 `--execute` 才真正发出。**
+
+```bash
+# 把一组词加进单元，统一出价 3.5、短语匹配
+python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+  --words "月季,玫瑰花,月季花苗" --price 3.5 --phrase-type 2
+
+# 确认无误后再加 --execute
+python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+  --words "月季,玫瑰花,月季花苗" --price 3.5 --phrase-type 2 --execute
+
+# 改出价 / 暂停：字段名以百度接口为准，用 JSON 条目最稳
+python3 scripts/bmctl.py write word-update --items '[{"wordId":333,"price":2.8}]'
+
+# 改计划预算、暂停计划
+python3 scripts/bmctl.py write campaign-update --campaign-id 111 --budget 300 --status pause
+```
+
+四条铁律：
+
+1. **先预览再执行**。默认 dry-run 会打印完整 URL 与报文（令牌已脱敏）。
+   任何一次 `--execute` 之前，都要把报文里的价格、地域、落地页、否定词过一遍。
+2. **报数不报「已处理」**。写成功后要如实给出接口返回的 id 数量；失败要说清是哪一级、
+   哪个物料，不能含糊成"部分成功"。
+3. **批量有上限**：一次最多 200 词 / 20 计划 / 50 单元。超限直接拒绝，不是分批替你跑——
+   改太多出错时没法人工核对。
+4. **每次真实写入都落审计**：`~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，
+   记录账户、物料、完整报文。出问题按这个文件回溯。
+
+失败时怎么判断：
+
+| 现象 | 含义 | 做法 |
+|---|---|---|
+| 退出码 3 + 提示「需要投放管理权限」 | 权限域未开通（89406 已翻译） | 去开发者后台补权限并重新授权 |
+| 退出码 2 +「参数错误」 | 本地拦截：缺字段 / 超批量 / 空列表 | 按提示补参数，未发出任何请求 |
+| 接口返回 81020 | userName 与令牌不属同一账户 | 用 `--account` 指定，别混用凭据 |
+
 ## 六、能力边界
 
 权限取决于应用申请了哪些域，不是专家决定的：
@@ -173,7 +225,12 @@ python3 scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd -
 未开通返回 `89406 The access token ... invalidate`，`position=_user`。
 **这不是令牌坏了**——同一个令牌能正常拓词。补开权限后必须重新授权，旧令牌不会自动获得新权限。
 
-**本能力的定位是"读数据、算策略"**，写操作（改价、建计划）必须由人在后台执行。
+**本能力既能读也能写**：拓词、账户数据、投放结构导出是读；加词、改价、启停、改预算、
+跨账户复制是写。写操作走 `write` / `transfer clone --execute`，默认 dry-run，
+必须显式加 `--execute` 才发请求，且每次真实写入都落审计。
+
+写能力**强依赖「投放管理」权限域**。只有「工具」域时读接口正常、写接口一律 89406——
+所以「拓词能跑」不代表「能改账户」，这两件事别混着说。
 
 ## 七、错误速查
 

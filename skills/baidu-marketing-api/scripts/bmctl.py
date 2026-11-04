@@ -35,7 +35,7 @@ from bmclient.errors import (  # noqa: E402
     DryRunRequested,
     WriteNotPermitted,
 )
-from bmclient.services import account, kr, transfer  # noqa: E402
+from bmclient.services import account, kr, transfer, write  # noqa: E402
 
 
 def _common_parser():
@@ -176,6 +176,46 @@ def build_parser():
     p_clone.add_argument("--execute", action="store_true",
                          help="真正写入目标账户（需投放管理权限，默认只 dry-run）")
 
+    # ---- write ----
+    p_write = sub.add_parser(
+        "write", help="写操作：关键词 / 计划 / 单元（默认 dry-run，加 --execute 才真正写入）"
+    )
+    wr = p_write.add_subparsers(dest="action", required=True)
+
+    def execute_flag(p):
+        p.add_argument("--execute", action="store_true",
+                       help="真正写入账户（需投放管理权限，不加则只打印报文）")
+        return p
+
+    p_wa = execute_flag(leaf(wr, "word-add", "向单元添加关键词"))
+    p_wa.add_argument("--adgroup-id", type=int, required=True, dest="adgroup_id")
+    p_wa.add_argument("--words", required=True, help="逗号分隔的词面，中英文逗号都行")
+    p_wa.add_argument("--price", type=float, help="每个词的出价（元），不填用单元默认价")
+    p_wa.add_argument("--phrase-type", type=int, dest="phrase_type",
+                      help="1 精确 / 2 短语 / 3 广泛")
+    p_wa.add_argument("--extra", default="", help="额外字段 JSON，合并进每个词")
+
+    p_wu = execute_flag(leaf(wr, "word-update", "改关键词：出价 / 匹配模式 / 启停"))
+    p_wu.add_argument("--items", help="keywordTypes 条目 JSON 数组")
+    p_wu.add_argument("--items-file", dest="items_file", help="从文件读 JSON 数组")
+
+    p_wd = execute_flag(leaf(wr, "word-delete", "按 id 删除关键词"))
+    p_wd.add_argument("--word-ids", required=True, dest="word_ids", help="逗号分隔的 wordId")
+
+    p_cu = execute_flag(leaf(wr, "campaign-update", "改计划：预算 / 启停"))
+    p_cu.add_argument("--campaign-id", type=int, dest="campaign_id")
+    p_cu.add_argument("--budget", type=float, help="日预算（元）")
+    p_cu.add_argument("--status", help="enable / pause，或直接给数字状态码")
+    p_cu.add_argument("--items", help="campaignTypes 条目 JSON 数组（批量时用）")
+    p_cu.add_argument("--items-file", dest="items_file")
+
+    p_au = execute_flag(leaf(wr, "adgroup-update", "改单元：出价 / 启停"))
+    p_au.add_argument("--adgroup-id", type=int, dest="adgroup_id")
+    p_au.add_argument("--price", type=float, help="单元出价（元）")
+    p_au.add_argument("--status", help="enable / pause，或直接给数字状态码")
+    p_au.add_argument("--items", help="adgroupTypes 条目 JSON 数组（批量时用）")
+    p_au.add_argument("--items-file", dest="items_file")
+
     # ---- call ----
     p_call = leaf(sub, "call", "通用透传：调用任意百度接口")
     p_call.add_argument("--service", required=True, help="服务类名，如 CampaignService / KRService")
@@ -211,6 +251,8 @@ def main(argv=None):
             return _run_account_data(args)
         if args.group == "transfer":
             return _run_transfer(args)
+        if args.group == "write":
+            return _run_write(args)
         if args.group == "call":
             return _run_call(args)
     except DryRunRequested as exc:
@@ -641,6 +683,62 @@ def _run_transfer(args):
         render.emit(result, args.format, title="跨账户复制")
         return 0
     return 0
+
+
+def _run_write(args):
+    """写操作统一入口。dry-run 由 client 的 dry_run 开关控制，命中时抛 DryRunRequested。"""
+    client, _ = _make_client_from(getattr(args, "account", None), args)
+    # 默认预览：只有显式 --execute 才写；同时给了 --dry-run 则以 --dry-run 为准
+    client.dry_run = bool(getattr(args, "dry_run", False)) or not args.execute
+
+    if args.action == "word-add":
+        extra = _parse_body(args.extra) if args.extra else None
+        data = write.add_words(
+            client, args.adgroup_id, args.words,
+            price=args.price, phrase_type=args.phrase_type, extra=extra,
+        )
+        title = "添加关键词"
+    elif args.action == "word-update":
+        data = write.update_words(client, _load_items(args))
+        title = "修改关键词"
+    elif args.action == "word-delete":
+        data = write.delete_words(client, args.word_ids)
+        title = "删除关键词"
+    elif args.action == "campaign-update":
+        items = _load_items(args)
+        if items is None:
+            items = [write.campaign_item(args.campaign_id, budget=args.budget, status=args.status)]
+        data = write.update_campaigns(client, items)
+        title = "修改计划"
+    elif args.action == "adgroup-update":
+        items = _load_items(args)
+        if items is None:
+            items = [write.adgroup_item(args.adgroup_id, price=args.price, status=args.status)]
+        data = write.update_adgroups(client, items)
+        title = "修改单元"
+    else:
+        raise ValueError(f"未知写操作：{args.action}")
+
+    render.emit(
+        {"result": data, "written": not client.dry_run, "audit": str(write.audit_path())},
+        args.format,
+        title=title,
+    )
+    return 0
+
+
+def _load_items(args):
+    """--items / --items-file 二选一；都没给返回 None，由调用方走便捷参数。"""
+    raw = getattr(args, "items", None)
+    path = getattr(args, "items_file", None)
+    if path:
+        raw = Path(path).read_text(encoding="utf-8")
+    if not raw:
+        return None
+    data = _parse_body(raw)
+    if not isinstance(data, list) or not data:
+        raise ValueError("--items 必须是非空 JSON 数组")
+    return data
 
 
 def _run_call(args):

@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.6.4-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.7.0-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.6.4` |
+| 版本 | `1.7.0` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | Python 3 标准库，**零第三方依赖** |
@@ -34,9 +34,10 @@
 | 常见做法 | MyBMO 的做法 |
 |---|---|
 | 凭经验说「这个词挺热」 | 调关键词规划师，给出 `pv` / `competition` / `rec_bid` 三个数 |
-| 商品图看完靠感觉列词 | 读图提产品档案 → 拓词 → 筛词 → 四组 → 优先级 → 否词，产出可导入后台的词表 |
+| 商品图看完靠感觉列词 | 读图提产品档案 → 拓词 → 筛词 → 四组 → 优先级 → 否词，产出词表并可直接写进账户 |
 | 多账户手动切换、数据串台 | 一个 alias = 一个账户 = 一份独立凭据，报数必须带账户名 |
-| 跨账户复制投放靠手工重建 | `transfer describe` 导出 → 人工核对 → `transfer clone --execute` 写入，默认 dry-run |
+| 跨账户复制投放靠手工重建 | `transfer describe` 导出 → 人工核对 → `transfer clone --execute` 逐级重建 |
+| 建议停在聊天里，落地还要手工敲后台 | 预览报文 → `--execute` 直接写入，全程落审计 |
 
 ## 核心能力
 
@@ -47,6 +48,7 @@
 - **数据诊断与复盘**：ROAS、加购转化率、ACOS、品牌回搜率为核心，按 SKU 给动作。
 - **按图出词包**：读图提取卖点 → 真实搜索量批量拓词 → 按四个投放方向分组，产出词表 / 数据附表 / 优先级与否词。
 - **真实数据拉取**：关键词拓词、账户数据、跨账户投放复制。
+- **写操作落地**：加词、改出价与匹配模式、启停计划/单元、调预算。**默认 dry-run**，加 `--execute` 才真正写入，每次写入都落审计。
 - **合规提示**：类目资质、落地页与商品库同步风险、小预算测试前置建议。
 
 ## 安装
@@ -100,7 +102,25 @@ python3 scripts/bmctl.py --account axd kr expand --seed "猫粮"
 | `account info` / `account balance` | 账户信息 / 余额 |
 | `transfer describe --from-account A` | 从 A 账户导出投放结构 |
 | `transfer clone --from-account A --to-account B` | 跨账户复制投放方案 |
+| `write word-add --adgroup-id 9 --words "月季,玫瑰花"` | 加词（可带出价与匹配模式） |
+| `write word-update --items '[...]'` | 改关键词出价 / 匹配 / 启停 |
+| `write word-delete --word-ids 11,22` | 按 id 删词 |
+| `write campaign-update --campaign-id 1 --budget 300` | 改计划预算 / 启停 |
+| `write adgroup-update --adgroup-id 9 --price 2.5` | 改单元出价 / 启停 |
 | `call --service X --method y --body '{...}'` | 通用透传任意接口 |
+
+`write` 与 `transfer clone` 都**默认 dry-run**：不加 `--execute` 只打印 URL 与报文（令牌已脱敏），
+确认后再加 `--execute`：
+
+```bash
+# 1. 预览
+python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+  --words "月季,玫瑰花" --price 3.5 --phrase-type 2
+
+# 2. 确认无误后写入
+python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
+  --words "月季,玫瑰花" --price 3.5 --phrase-type 2 --execute
+```
 
 透传时方法名支持小写蛇形，脚本自动转驼峰：
 
@@ -161,7 +181,11 @@ python3 scripts/bmctl.py call --service krService --method get_kr_by_query \
 
 未开通返回 `89406`，`position=_user`——**这不是令牌坏了**，同一个令牌能正常拓词。补开权限后必须重新授权。
 
-**定位是「读数据、算策略」**：写操作（改价、建计划）必须由人在百度后台执行。
+**既能读也能写**：拓词、账户数据、结构导出是读；加词、改价、启停、改预算、跨账户复制是写。
+写操作默认 dry-run，`--execute` 才发请求，每次真实写入都落审计。
+
+写能力**强依赖「投放管理」权限域**。只有「工具」域时读接口正常、写接口一律 `89406`——
+「拓词能跑」不代表「能改账户」，这两件事不要混着说。
 
 ## 错误速查
 
@@ -196,7 +220,7 @@ mybmo-baidu-ecommerce-marketing/
 │           ├── transport.py        # HTTP + 鉴权 + 重试
 │           ├── errors.py           # 错误码释义
 │           ├── render.py           # JSON / Markdown 输出
-│           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制
+│           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制 / write 写操作
 ├── tests/                          # pytest：渲染 / 错误码 / 凭据 / CLI 冒烟
 ├── tools/build-zip.sh              # 一键生成可上传到开发平台的 zip
 ├── pyproject.toml                  # uv 项目配置（虚拟项目，dev 依赖 pytest、ruff）
@@ -213,7 +237,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 34 个用例：渲染、错误码、凭据管理、CLI 冒烟
+uv run pytest           # 60 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
@@ -286,7 +310,9 @@ EXPERT_MANAGER_DIR=/path/to/skills/expert-manager/scripts ./tools/build-zip.sh
 
 - **凭据不入库**：令牌只存在本机 `~/.workbuddy/baidu-marketing/accounts/`，`.gitignore` 已排除 `accounts/`、`*.token`、`.env`。
 - **运行时零依赖**：纯 Python 标准库，不引入任何外部包（`pytest` / `ruff` 仅开发时使用），减少供应链面。
-- **写操作默认关闭**：跨账户复制不加 `--execute` 只打印；权限不足会被本地拦住（退出码 3），不会打出半截请求污染目标账户。
+- **写操作默认 dry-run**：不加 `--execute` 只打印报文，不会碰到账户；权限不足时本地拦截（退出码 3），不发出半截请求。
+- **写操作留痕**：每次真实写入追加到 `~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，含账户、动作、物料、完整报文，出问题可按天回溯。
+- **批量有上限**：单次 200 词 / 20 计划 / 50 单元，超限直接拒绝而不是替你分批跑——改太多出错时无法人工核对。
 - **回调服务只监听 `127.0.0.1`**，公网靠隧道转发，不做 AES 验签而改为校验 state 的 base 部分。
 
 ## 免责声明

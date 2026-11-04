@@ -1,0 +1,132 @@
+"""跨账户复制：报文信封、id 剔除、写入链路串联。
+
+重点验证「每级用上一级返回的新 id」——这是跨账户复制最容易写错的地方。
+"""
+
+from types import SimpleNamespace
+
+import pytest
+
+from bmclient.errors import WriteNotPermitted
+from bmclient.services import transfer
+
+
+class FakeClient:
+    def __init__(self, responses=None):
+        self.cred = SimpleNamespace(alias="target", user_name="目标账户")
+        self.dry_run = False
+        self.calls = []
+        self.responses = responses or {}
+
+    def call(self, service, method, body=None, *, product_line="sms"):
+        self.calls.append({"service": service, "method": method, "body": body})
+        handler = self.responses.get(method)
+        if isinstance(handler, Exception):
+            raise handler
+        return handler if handler is not None else []
+
+
+PLAN = {
+    "source": {"user_name": "源账户", "alias": "src"},
+    "product_line": "sms",
+    "campaigns": [
+        {
+            "name": "A-计划",
+            "config": {"campaignName": "A-计划", "budget": 300, "campaignId": 111},
+            "adgroups": [
+                {
+                    "name": "A-单元",
+                    "config": {"adgroupName": "A-单元", "price": 2.5, "adgroupId": 222},
+                    "keywords": [
+                        {"word": "月季", "price": 3.0, "wordId": 333},
+                        {"word": "玫瑰花", "price": 2.0, "wordId": 334},
+                    ],
+                    "creatives": [],
+                }
+            ],
+        }
+    ],
+}
+
+
+# ---------- 报文构造 ----------
+
+
+def test_build_steps_uses_envelopes_and_strips_ids():
+    steps = transfer.build_steps(PLAN)
+
+    campaign = steps[0]
+    assert campaign["method"] == "addCampaign"
+    assert "campaignTypes" in campaign["body"]
+    assert "campaignId" not in campaign["body"]["campaignTypes"][0]
+
+    keyword = [s for s in steps if s["level"] == "keyword"][0]
+    assert "keywordTypes" in keyword["body"]
+    assert all("wordId" not in w for w in keyword["body"]["keywordTypes"])
+
+
+def test_build_steps_rejects_feed_line():
+    with pytest.raises(WriteNotPermitted) as exc:
+        transfer.build_steps(PLAN, product_line="feed")
+
+    assert "信息流" in str(exc.value)
+
+
+# ---------- dry-run ----------
+
+
+def test_apply_dry_run_sends_nothing():
+    client = FakeClient()
+
+    result = transfer.apply(client, PLAN, dry_run=True)
+
+    assert result["dry_run"] is True
+    assert result["steps"]
+    assert client.calls == []
+
+
+# ---------- 真实写入链路 ----------
+
+
+def test_apply_execute_chains_parent_ids():
+    client = FakeClient(
+        responses={
+            "addCampaign": [{"campaignId": 9001}],
+            "addAdgroup": [{"adgroupId": 8001}],
+            "addWord": [{"wordId": 7001}],
+        }
+    )
+
+    result = transfer.apply(client, PLAN, dry_run=False)
+
+    assert result["dry_run"] is False
+    assert result["created"]["campaigns"][0]["campaignId"] == 9001
+    assert result["created"]["adgroups"][0]["adgroupId"] == 8001
+    assert result["created"]["keywords"] == 2
+
+    methods = [c["method"] for c in client.calls]
+    assert methods == ["addCampaign", "addAdgroup", "addWord"]
+
+    adgroup_body = client.calls[1]["body"]["adgroupTypes"][0]
+    assert adgroup_body["campaignId"] == 9001, "单元必须挂到新建的计划下"
+
+    keyword_items = client.calls[2]["body"]["keywordTypes"]
+    assert all(w["adgroupId"] == 8001 for w in keyword_items), "关键词必须挂到新建的单元下"
+
+
+def test_apply_execute_refuses_to_guess_missing_id():
+    client = FakeClient(responses={"addCampaign": []})
+
+    with pytest.raises(WriteNotPermitted) as exc:
+        transfer.apply(client, PLAN, dry_run=False)
+
+    assert "未返回 campaignId" in str(exc.value)
+
+
+def test_apply_stops_before_children_when_campaign_fails():
+    client = FakeClient(responses={"addCampaign": WriteNotPermitted("权限不足")})
+
+    with pytest.raises(WriteNotPermitted):
+        transfer.apply(client, PLAN, dry_run=False)
+
+    assert [c["method"] for c in client.calls] == ["addCampaign"]

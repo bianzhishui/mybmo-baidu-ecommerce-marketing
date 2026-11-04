@@ -7,10 +7,11 @@
 
 模块：
   kr       关键词规划师（拓词）
-  account  账户与资金（只读）
+  account  账户与资金
   transfer 跨账户投放方案复制（A → B）
+  write    写操作（关键词 / 计划 / 单元），带批量保护与审计
 """
 
-from . import account, kr, transfer
+from . import account, kr, transfer, write
 
-__all__ = ["account", "kr", "transfer"]
+__all__ = ["account", "kr", "transfer", "write"]
