@@ -203,6 +203,15 @@ mybmo-baidu-ecommerce-marketing/
 
 ## 本地开发
 
+准备 Python 环境（`uv`，仓库已锁 Python 3.13，无第三方依赖）：
+
+```bash
+uv venv            # 创建 .venv，读取 .python-version
+source .venv/bin/activate
+
+python skills/baidu-marketing-api/scripts/bmctl.py accounts list
+```
+
 修改源码后，需要同步到 WorkBuddy 的插件目录并让缓存重建才能生效：
 
 ```bash
