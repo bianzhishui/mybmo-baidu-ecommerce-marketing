@@ -2,18 +2,25 @@
 
 一个推广账户 = 一份凭据 = 一个 alias。目录布局：
 
-    ~/.workbuddy/baidu-marketing/
+    ~/.baidu-marketing/
     ├── accounts/
     │   ├── wds02.json        # alias=wds02 的完整凭据，权限 600
     │   └── axd.json
     └── default               # 纯文本，记录默认 alias
+
+目录位置解析顺序（高 → 低）：
+1. 环境变量 `BM_HOME`（显式指定，最高优先级）
+2. `~/.baidu-marketing`（默认）
+3. `~/.workbuddy/baidu-marketing`（历史位置，仅在默认不存在且它存在时沿用，
+   避免老用户升级后"账户凭空消失"）
+
+本模块不依赖任何特定 agent 平台，也不依赖外部项目的数据库，凭据完全自持。
 
 单个账户内的字段来源优先级（高 → 低）：
 1. 环境变量（BAIDU_ACCESS_TOKEN / BAIDU_APP_ID / BAIDU_USER_NAME ...）
 2. accounts/<alias>.json
 
 环境变量是"临时覆盖"，适合 CI 或一次性调试；日常使用走 alias。
-本模块不依赖任何外部项目的数据库，凭据完全自持。
 """
 
 from __future__ import annotations
@@ -26,7 +33,9 @@ from pathlib import Path
 
 from .errors import CredentialError
 
-DEFAULT_HOME = Path.home() / ".workbuddy" / "baidu-marketing"
+DEFAULT_HOME = Path.home() / ".baidu-marketing"
+# 旧默认目录：曾经硬编码过 WorkBuddy 的配置目录，老用户的凭据可能还在这里
+LEGACY_HOME = Path.home() / ".workbuddy" / "baidu-marketing"
 ACCOUNTS_DIRNAME = "accounts"
 DEFAULT_ALIAS_FILE = "default"
 
@@ -121,7 +130,13 @@ class Credential:
 
 
 def home_dir():
-    return Path(os.getenv("BM_HOME") or DEFAULT_HOME).expanduser()
+    """数据目录。BM_HOME 优先；否则新默认；新默认没建过但旧位置有数据时沿用旧位置。"""
+    env = os.getenv("BM_HOME")
+    if env:
+        return Path(env).expanduser()
+    if not DEFAULT_HOME.exists() and LEGACY_HOME.exists():
+        return LEGACY_HOME
+    return DEFAULT_HOME
 
 
 def accounts_dir():

@@ -210,7 +210,7 @@ uv run scripts/bmctl.py call --service krService --method get_kr_by_query \
 ## 多账户
 
 一个 **alias = 一个推广账户 = 一份独立凭据**，令牌互不通用，存放在
-`~/.workbuddy/baidu-marketing/accounts/<alias>.json`（macOS/Linux 下权限 600；Windows 无 POSIX
+`~/.baidu-marketing/accounts/<alias>.json`（macOS/Linux 下权限 600；Windows 无 POSIX
 权限位，依赖 `%USERPROFILE%` 的用户目录 ACL，默认仅本人可读），**不随插件分发**，每台机器需单独授权一次。
 
 三个必须知道的细节：
@@ -296,13 +296,13 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 145 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 150 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
 
 测试通过 `BM_HOME` 环境变量把凭据目录重定向到临时目录，**不会读写你真实的
-`~/.workbuddy/baidu-marketing/`**。
+`~/.baidu-marketing/`**。
 
 这条隔离是**默认生效**的：`tests/conftest.py` 用 autouse fixture 给每个用例设好临时
 `BM_HOME`，不靠各测试文件自己记得。另有一层兜底——整个会话跑完会比对真实审计目录，
@@ -310,7 +310,7 @@ uv run ruff format .    # 可选，会重排未格式化的文件
 
 ```
 AssertionError: 测试污染了真实审计目录！
-  目录: ~/.workbuddy/baidu-marketing/audit
+  目录: ~/.baidu-marketing/audit
   新增: ['2026-11-04.jsonl']
 ```
 
@@ -396,10 +396,10 @@ EXPERT_MANAGER_DIR=/path/to/skills/expert-manager/scripts ./tools/build-zip.sh
 
 ## 安全与隐私
 
-- **凭据不入库**：令牌只存在本机 `~/.workbuddy/baidu-marketing/accounts/`，`.gitignore` 已排除 `accounts/`、`*.token`、`.env`。
+- **凭据不入库**：令牌只存在本机 `~/.baidu-marketing/accounts/`，`.gitignore` 已排除 `accounts/`、`*.token`、`.env`。
 - **依赖面可控**：执行器只有 `uv` 一个可执行文件，运行时依赖集中声明在脚本头部并用 `==` 精确 pin；`pytest` / `ruff` 仅开发时使用。
 - **写操作强制两步审批**：预览拿 digest 才能执行，没预览或报文被改过一律拒绝（退出码 4）；权限不足时本地拦截（退出码 3），不发出半截请求。
-- **写操作留痕**：每次真实写入追加到 `~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，含账户、动作、物料、完整报文与审批 digest，出问题可按天回溯。
+- **写操作留痕**：每次真实写入追加到 `~/.baidu-marketing/audit/YYYY-MM-DD.jsonl`，含账户、动作、物料、完整报文与审批 digest，出问题可按天回溯。
 - **批量有上限**：单次 200 词 / 20 计划 / 50 单元，超限直接拒绝而不是替你分批跑——改太多出错时无法人工核对。
 - **回调服务只监听 `127.0.0.1`**，公网靠隧道转发，不做 AES 验签而改为校验 state 的 base 部分。
 

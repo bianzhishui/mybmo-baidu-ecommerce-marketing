@@ -6,7 +6,7 @@
 所以跨账户操作必须先切换凭据，不能沿用上一个账户的 token。
 
 ```
-~/.workbuddy/baidu-marketing/
+~/.baidu-marketing/
 ├── accounts/
 │   ├── wds02.json       # alias=wds02 的完整凭据（Unix 权限 600）
 │   └── axd.json
@@ -154,7 +154,7 @@ uv run scripts/bmctl.py auth exchange --code <authCode> \
 账户分属不同 AppID / 开发者uid / SecretKey 时，用清单一次加载，不要起多个服务：
 
 ```json
-// ~/.workbuddy/baidu-marketing/apps.json   Unix 权限 600（含密钥）
+// ~/.baidu-marketing/apps.json   Unix 权限 600（含密钥）
 {
   "apps": [
     {"label": "主应用", "app_id": "<AppID-A>", "developer_uid": "<uid-A>", "secret_key": "<Key-A>"},
@@ -164,7 +164,7 @@ uv run scripts/bmctl.py auth exchange --code <authCode> \
 ```
 
 ```bash
-uv run scripts/bmctl.py auth serve --apps-file ~/.workbuddy/baidu-marketing/apps.json --wait 900
+uv run scripts/bmctl.py auth serve --apps-file ~/.baidu-marketing/apps.json --wait 900
 ```
 
 每个应用有自己的 base（`md5(appId_开发者uid)`），服务按回调 state 的前缀定位应用，

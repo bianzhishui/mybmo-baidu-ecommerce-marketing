@@ -5,7 +5,7 @@
    这类固定基目录的重复 mkdir 会抛 EEXIST，导致用例第二次运行时全部报错。
 2. **强制隔离所有会落盘的副作用**（BM_HOME）。审计日志是按 BM_HOME 定位的，
    漏设一次就会把测试假数据写进用户真实目录——真踩过：50 条 alias=target 的假记录
-   混进了 ~/.workbuddy/baidu-marketing/audit，直接毁掉审计的可信度。
+   混进了真实审计目录，直接毁掉审计的可信度。
    所以隔离放在 conftest 里做 autouse，而不是靠每个测试文件自己记得。
 """
 
@@ -15,7 +15,11 @@ from pathlib import Path
 
 import pytest
 
-REAL_BAIDU_HOME = Path.home() / ".workbuddy" / "baidu-marketing"
+# 真实目录有两个：当前默认与历史位置。两边都要守，漏一边照样能污染。
+REAL_BAIDU_HOMES = (
+    Path.home() / ".baidu-marketing",
+    Path.home() / ".workbuddy" / "baidu-marketing",
+)
 
 
 @pytest.fixture
@@ -40,10 +44,14 @@ def isolate_bm_home(tmp_dir, monkeypatch):
 
 def _snapshot_real_audit():
     """记录真实审计目录的文件指纹，用于会话前后比对。"""
-    audit = REAL_BAIDU_HOME / "audit"
-    if not audit.is_dir():
-        return {}
-    return {p.name: p.stat().st_size for p in sorted(audit.glob("*.jsonl"))}
+    snapshot = {}
+    for home in REAL_BAIDU_HOMES:
+        audit = home / "audit"
+        if not audit.is_dir():
+            continue
+        for path in sorted(audit.glob("*.jsonl")):
+            snapshot[str(path)] = path.stat().st_size
+    return snapshot
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -63,7 +71,7 @@ def guard_real_home():
     if added or changed:
         raise AssertionError(
             "测试污染了真实审计目录！\n"
-            f"  目录: {REAL_BAIDU_HOME / 'audit'}\n"
+            f"  目录: {[str(h / 'audit') for h in REAL_BAIDU_HOMES]}\n"
             f"  新增: {sorted(added)}\n"
             f"  变更: {sorted(changed)}\n"
             "某个测试没有隔离 BM_HOME，或显式删掉了它。"

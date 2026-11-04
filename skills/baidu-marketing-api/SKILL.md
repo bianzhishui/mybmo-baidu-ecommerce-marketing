@@ -70,7 +70,7 @@ uv run scripts/bmctl.py accounts list
 - 退出码 6 → 绕过了 uv 直接调了低版本 python，改用 `uv run` 即可
 - 其它 Python 报错 → 环境问题，不是权限问题
 
-凭据不随专家包分发，每台机器需单独授权一次。运行方式与 uv 安装命令见 `runtime.json`；
+凭据不随技能或专家包分发，每台机器需单独授权一次。运行方式与 uv 安装命令见 `runtime.json`；
 依赖与 Python 下限以脚本头部内联元数据为准。
 
 ## 一、多账户与授权
@@ -100,7 +100,7 @@ uv run scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid
 服务默认只监听 `127.0.0.1`，公网靠隧道转发；容器/反代场景可显式 `--host 0.0.0.0`，
 此时 CLI 会打印警告。不做 AES 验签，改为校验 state 的 base 部分。
 
-凭据落在 `~/.workbuddy/baidu-marketing/accounts/<alias>.json`
+凭据落在 `~/.baidu-marketing/accounts/<alias>.json`
 （macOS/Linux 权限 600；Windows 无 POSIX 权限位，靠用户目录 ACL，默认仅本人可读）。
 `BM_ACCOUNT` 可临时指定账户，`BAIDU_*` 环境变量优先级最高。
 
@@ -238,7 +238,7 @@ uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
 1. **三步走**：预览 → 弹确认卡片 → 带 digest 执行；一次只做一件事，别把加词和改价塞进一条命令。
 2. **报数带 id**：说"已加 3 个词，wordId 7001/7002/7003"，不说"已完成"。
 3. **批量上限**：单次 200 词 / 20 计划 / 50 单元；超了本地拒绝，不替你分批。
-4. **每次写入落审计**：`~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`。
+4. **每次写入落审计**：`~/.baidu-marketing/audit/YYYY-MM-DD.jsonl`。
 
 **完整规范**在 [`references/write-rules.md`](references/write-rules.md)：三条受约束路径、
 卡片必含字段、无卡片环境怎么降级、以及失败对照表（退出码 3/4/5/2 各代表什么）。

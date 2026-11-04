@@ -149,9 +149,9 @@ uv run <skill>/scripts/bmctl.py auth link --app-id <AppID> \
 2. 写凭据文件（macOS/Linux 下权限必须 600；Windows 无 POSIX 权限位，跳过 chmod 即可）：
 
 ```bash
-# 路径：~/.workbuddy/baidu-marketing/accounts/<alias>.json
+# 路径：~/.baidu-marketing/accounts/<alias>.json
 # expires_at / refresh_expires_at 是 Unix 时间戳（秒），不确定就写 0
-chmod 600 ~/.workbuddy/baidu-marketing/accounts/<alias>.json
+chmod 600 ~/.baidu-marketing/accounts/<alias>.json
 ```
 
 3. **验证**：跳「第 3 步」

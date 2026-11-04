@@ -1,6 +1,6 @@
 # 全新电脑上首次使用
 
-这份文档面向"刚装好专家、什么都还没配"的场景。目标是让你在 10 分钟内跑通第一次真实取数。
+这份文档面向"刚装好技能、什么都还没配"的场景。目标是让你在 10 分钟内跑通第一次真实取数。
 
 ## 零、先确认你处在哪一步
 
@@ -61,25 +61,26 @@ chcp 65001
 
 或设置环境变量 `PYTHONIOENCODING=utf-8`。这只是显示问题，不影响取数。
 
-## 二、装专家包
+## 二、安装技能
 
-**方式一：专家中心导入**
-
-把 `mybmo-baidu-ecommerce-marketing` 目录（或打包后的 zip）导入专家中心 → 我的专家。
-导入后专家自动可见，无需额外操作。
-
-**方式二：手动放置**
+技能就是一个目录。放进你的 agent 加载技能的位置即可，**不绑定任何特定平台**：
 
 ```bash
-# 放到位
-cp -r mybmo-baidu-ecommerce-marketing ~/.workbuddy/plugins/marketplaces/my-experts/plugins/
-
-# 注册（用 expert-manager 技能自带的脚本）
-python3 <expert-manager>/scripts/register_expert.py \
-  ~/.workbuddy/plugins/marketplaces/my-experts/plugins/mybmo-baidu-ecommerce-marketing
+# 通用做法：整目录拷进 agent 的 skills 目录
+# 目录名保持 baidu-marketing-api，且 SKILL.md 要在该目录根部
+cp -r baidu-marketing-api <你的 agent 的 skills 目录>/
 ```
 
-> **凭据不会随专家包一起走。** 这是有意的安全设计——令牌是个人资产，
+| 宿主 | 用户级 | 项目级 |
+|---|---|---|
+| WorkBuddy / CodeBuddy | `~/.codebuddy/skills/` | `<项目>/.codebuddy/skills/` |
+| 其它按 SKILL.md 约定的 agent | 见其文档 | 见其文档 |
+
+判断标准只有一条：**agent 能扫到 `SKILL.md`**。
+
+> 如果你装的是**完整专家包**（含 MyBMO 人设），技能已经打包在里面，跳过这一步。
+
+> **凭据不会随技能或专家包一起走。** 这是有意的安全设计——令牌是个人资产，
 > 不该打包分享。所以每台新电脑都要单独授权一次。
 
 ## 三、准备授权（需要在百度侧操作）
@@ -104,7 +105,7 @@ python3 <expert-manager>/scripts/register_expert.py \
 百度在同意授权后，以 **GET 方式、服务端到服务端**回调你填的地址，带回一次性 `authCode`。
 浏览器不参与这次回调，所以 `localhost` 无效，必须公网可达。
 
-专家包**内置了回调服务**，不用自己写。四步：
+技能**内置了回调服务**，不用自己写。四步：
 
 **① 起隧道**（另开一个终端，把公网地址转到本机 8080）
 
@@ -167,7 +168,7 @@ uv run scripts/bmctl.py auth exchange \
 `--alias` 是以后 `--account` 用的名字，用小写字母/数字/下划线（如 `wds02`、`axd_pet`）。
 `--user-name` 填账户中文名（如 `baidu-XX电商-XX店`），**不是 userId，也不是登录名**。
 
-成功后凭据落在 `~/.workbuddy/baidu-marketing/accounts/<alias>.json`（macOS/Linux 权限 600；Windows 无 POSIX 权限位，靠用户目录 ACL，默认仅本人可读）。
+成功后凭据落在 `~/.baidu-marketing/accounts/<alias>.json`（macOS/Linux 权限 600；Windows 无 POSIX 权限位，靠用户目录 ACL，默认仅本人可读）。
 
 ## 四、验证
 
@@ -186,7 +187,7 @@ uv run scripts/bmctl.py --account <别名> kr expand --seed "测试词" --limit 
 
 ## 五、开始使用
 
-通了之后，直接用自然语言提需求，专家自己会调脚本：
+通了之后，直接用自然语言提需求，agent 会自己调脚本：
 
 - 「帮我给 XX 产品拓词，按搜索量和推荐出价分组」
 - 「这两个词哪个更值得投」
@@ -232,7 +233,7 @@ uv run scripts/bmctl.py --account <别名> kr expand --seed "测试词" --limit 
 uv run scripts/bmctl.py accounts remove <别名>
 
 # 全部清空（谨慎，删的是凭据不是数据）
-rm -rf ~/.workbuddy/baidu-marketing
+rm -rf ~/.baidu-marketing
 ```
 
 清空后等同于全新电脑，按第二节重新开始。
