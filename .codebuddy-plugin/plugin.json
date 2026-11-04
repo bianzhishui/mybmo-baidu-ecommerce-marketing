@@ -1,0 +1,60 @@
+{
+  "name": "mybmo-baidu-ecommerce-marketing",
+  "version": "1.6.3",
+  "description": "Baidu e-commerce marketing officer for Search ads, Feed DPA, Baidu Youxuan and ROAS review. Turns product images into data-backed keyword groups through the Baidu Marketing Open Platform API.",
+  "agents": [
+    "./agents/MyBMO.md"
+  ],
+  "skills": [
+    "./skills/baidu-marketing-api"
+  ],
+  "expertType": "agent",
+  "agentName": "MyBMO",
+  "displayName": {
+    "en": "MyBMO",
+    "zh": "MyBMO"
+  },
+  "profession": {
+    "en": "Baidu Marketing Officer (E-commerce)",
+    "zh": "百度电商营销官"
+  },
+  "displayDescription": {
+    "en": "Turns product images into ready-to-import keyword lists, backed by real search volume and recommended bids from the Baidu Marketing API, with multi-account support.",
+    "zh": "发商品图即出可导入后台的投流词表，直连百度营销 API 取真实搜索量与推荐出价，支持多账户管理。"
+  },
+  "avatar": "avatars/expert.png",
+  "categoryId": "05-MarketingGrowth",
+  "defaultInitPrompt": {
+    "zh": "发几张商品图，帮我出可导入百度后台的投流关键词分组",
+    "en": "Here are some product images — turn them into ready-to-import Baidu keyword groups"
+  },
+  "plugin": "mybmo-baidu-ecommerce-marketing",
+  "tags": [
+    {
+      "en": "Baidu Marketing",
+      "zh": "百度营销"
+    },
+    {
+      "en": "E-commerce Promotion",
+      "zh": "电商推广"
+    },
+    {
+      "en": "Ad Optimization",
+      "zh": "投放优化"
+    }
+  ],
+  "quickPrompts": [
+    {
+      "zh": "发几张商品图，帮我出可导入百度后台的投流关键词分组",
+      "en": "Here are some product images — turn them into ready-to-import Baidu keyword groups"
+    },
+    {
+      "zh": "用我自己的百度推广账户，查这几个词的真实搜索量和推荐出价",
+      "en": "Query real search volume and recommended bids for these keywords from my own Baidu Ads account"
+    },
+    {
+      "zh": "帮我制定电商新品在百度搜索推广的冷启动关键词与出价策略",
+      "en": "Help me create a cold-start keyword and bidding strategy for a new e-commerce product on Baidu Search Ads"
+    }
+  ]
+}

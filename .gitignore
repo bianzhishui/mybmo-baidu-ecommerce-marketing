@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 凭据与本地配置（令牌属个人资产，不入库）
+.env
+accounts/
+*.token
+credentials.json
+
+# 编辑器
+.idea/
+.vscode/
