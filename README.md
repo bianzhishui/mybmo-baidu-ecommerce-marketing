@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.6.3-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.6.4-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.6.3` |
+| 版本 | `1.6.4` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | Python 3 标准库，**零第三方依赖** |
@@ -198,6 +198,7 @@ mybmo-baidu-ecommerce-marketing/
 │           ├── render.py           # JSON / Markdown 输出
 │           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制
 ├── tests/                          # pytest：渲染 / 错误码 / 凭据 / CLI 冒烟
+├── tools/build-zip.sh              # 一键生成可上传到开发平台的 zip
 ├── pyproject.toml                  # uv 项目配置（虚拟项目，dev 依赖 pytest、ruff）
 ├── uv.lock                         # 开发依赖锁文件
 ├── .python-version                 # 锁定 Python 3.13
@@ -237,6 +238,49 @@ rsync -a --delete \
 
 > 运行时真正加载的是 `~/.workbuddy/plugins/cache/my-experts/mybmo-baidu-ecommerce-marketing/<version>/`，
 > 只改市场源不升版本号，缓存不会重建。
+
+## 打包上传到开发平台
+
+```bash
+./tools/build-zip.sh
+# → dist/mybmo-baidu-ecommerce-marketing.zip   （22 个文件，约 500 KB）
+```
+
+脚本走的是 WorkBuddy 官方 `expert-manager` 的四步流程：
+
+```
+同步 → 校验（validate_expert.py）→ 注册（register_expert.py）→ 打包（package_expert.py）
+```
+
+**为什么要先"同步"**：官方校验器强制要求专家目录位于
+`$WORKBUDDY_CONFIG_DIR/plugins/marketplaces/my-experts/plugins` 下，
+直接对本仓库目录打包会被判为"专家不在专家目录下"而失败。脚本会先同步一份干净的
+运行时副本过去，再对它校验和打包。
+
+**包里有什么**：`plugin.json`、`README.md`、`agents/`、`avatars/`、`skills/`。
+开发用文件不会进包——`tests/`、`tools/`、`pyproject.toml`、`uv.lock`、`.venv`、`.git`。
+注意排除规则用前导斜杠锚定（`/tools` 而非 `tools`），否则会误伤
+`skills/baidu-marketing-api/scripts` 这类同名嵌套目录。
+
+zip 内部结构是单个顶层目录，上传时不要额外套壳：
+
+```
+mybmo-baidu-ecommerce-marketing/
+├── .codebuddy-plugin/plugin.json
+├── agents/MyBMO.md
+├── avatars/expert.png
+├── skills/baidu-marketing-api/...
+└── README.md
+```
+
+**上传前要做的**：递增 `.codebuddy-plugin/plugin.json` 的 `version`，
+并与 `pyproject.toml`、README 徽章保持一致（同名同版本重复上传通常会被拒）。
+
+如果 `expert-manager` 不在默认安装路径，用环境变量指定：
+
+```bash
+EXPERT_MANAGER_DIR=/path/to/skills/expert-manager/scripts ./tools/build-zip.sh
+```
 
 ## 安全与隐私
 

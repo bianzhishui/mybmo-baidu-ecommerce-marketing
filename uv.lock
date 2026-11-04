@@ -53,7 +53,7 @@ wheels = [
 
 [[package]]
 name = "mybmo-baidu-ecommerce-marketing"
-version = "1.6.3"
+version = "1.6.4"
 source = { virtual = "." }
 
 [package.dev-dependencies]
