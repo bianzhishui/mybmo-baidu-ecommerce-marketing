@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import copy
 
-from ..errors import BaiduApiError, WriteNotPermitted
+from .. import approval
+from ..errors import BaiduApiError, WriteFailed, WriteNotPermitted
 from . import write as write_ops
 
 # 跨账户时必须剔除的字段：任何以 Id 结尾的、以及账户/用户标识
@@ -209,14 +210,19 @@ def build_steps(plan, *, product_line="sms"):
     return steps
 
 
-def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True):
+def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True,
+          confirm=None):
     """在目标账户按新 id 逐级重建。默认 dry_run，只有显式传 False 才会写。
 
-    dry_run=True：只返回待执行报文，不发请求。
-    dry_run=False：串行写入，每级用上一级返回的新 id 串联；返回已创建物料的 id。
+    dry_run=True：只返回待执行报文与审批 digest，不发请求。
+    dry_run=False：先校验 confirm 与报文是否匹配，再串行写入。
+
+    审批覆盖整棵步骤树，不是逐级审批——因为用户同意的是「把这套投放复制过去」这件事，
+    不该在中间再被问三次。
     """
     _require_writable_line(product_line)
     steps = build_steps(plan, product_line=product_line)
+    alias = getattr(client.cred, "alias", "")
 
     if dry_run:
         return {
@@ -225,12 +231,14 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True)
             "product_line": product_line,
             "stats": summarize_plan(plan),
             "steps": steps,
+            "approval": approval.describe(alias, steps),
             "notice": (
-                "以上为待执行报文，未发送。确认无误后加 --execute 才会真正写入。"
-                "重点核对价格、地域、落地页 URL 与否定词——写错了只能手工回滚。"
+                "以上为待执行报文，未发送。交给用户核对价格、地域、落地页与否定词，"
+                "确认后用上面的 digest 加 --execute --confirm <digest> 执行。"
             ),
         }
 
+    approval.require(confirm, alias, steps)
     return _execute(client, plan, stop_on_error=stop_on_error)
 
 
@@ -243,7 +251,7 @@ def _execute(client, plan, *, stop_on_error=True):
         try:
             data = write_ops.call_raw(
                 client, "campaign", "CampaignService", "addCampaign",
-                [strip_ids(campaign.get("config"))],
+                [strip_ids(campaign.get("config"))], _preapproved=True,
             )
             cid = _pick_id(data, "campaignId", f"计划「{campaign['name']}」")
             created["campaigns"].append({"name": campaign["name"], "campaignId": cid})
@@ -253,6 +261,7 @@ def _execute(client, plan, *, stop_on_error=True):
                 gcfg["campaignId"] = cid
                 data = write_ops.call_raw(
                     client, "adgroup", "AdgroupService", "addAdgroup", [gcfg],
+                    _preapproved=True,
                 )
                 aid = _pick_id(data, "adgroupId", f"单元「{group['name']}」")
                 created["adgroups"].append(
@@ -265,6 +274,7 @@ def _execute(client, plan, *, stop_on_error=True):
                         word["adgroupId"] = aid
                     write_ops.call_raw(
                         client, "keyword", "KeywordService", "addWord", words,
+                        _preapproved=True,
                     )
                     created["keywords"] += len(words)
 
@@ -274,10 +284,11 @@ def _execute(client, plan, *, stop_on_error=True):
                         creative["adgroupId"] = aid
                     write_ops.call_raw(
                         client, "creative", "CreativeService", "addCreative", creatives,
+                        _preapproved=True,
                     )
                     created["creatives"] += len(creatives)
 
-        except (BaiduApiError, WriteNotPermitted, ValueError) as exc:
+        except (BaiduApiError, WriteNotPermitted, WriteFailed, ValueError) as exc:
             errors.append({"campaign": campaign.get("name"), "error": str(exc)})
             if stop_on_error:
                 raise
@@ -291,12 +302,17 @@ def _execute(client, plan, *, stop_on_error=True):
 
 
 def _pick_id(data, key, label):
-    """从 add* 的返回里取新建物料的 id。取不到就停，绝不猜一个。"""
+    """从 add* 的返回里取新建物料的 id。取不到就停，绝不猜一个。
+
+    这已经不属于「被拦截」了——计划很可能真的建出来了，只是没拿到 id。
+    所以抛 WriteFailed 而不是 WriteNotPermitted，让调用方能区分
+    「一条都没发」和「发了一半」。
+    """
     candidates = data if isinstance(data, list) else [data]
     for item in candidates:
         if isinstance(item, dict) and item.get(key):
             return item[key]
-    raise WriteNotPermitted(
+    raise WriteFailed(
         f"{label} 创建后接口未返回 {key}，无法继续下级写入。"
         f"已创建的物料需要在后台手工清理。原始返回：{str(data)[:300]}"
     )

@@ -87,6 +87,23 @@ class WriteNotPermitted(RuntimeError):
     """
 
 
+class ApprovalRequired(RuntimeError):
+    """写操作缺少用户审批，或审批凭据与当前报文不符。
+
+    写操作不可逆，必须走「预览 → 用户确认 → 凭预览里的 digest 执行」两步。
+    缺少 digest 说明没预览过；digest 不匹配说明预览之后报文被改过——
+    两种情况都必须重新来过，不能放行。
+    """
+
+
+class WriteFailed(RuntimeError):
+    """写入已经开始但中途失败（例如建了计划却拿不到 campaignId）。
+
+    与 WriteNotPermitted 的区别：那个是「一条都没发」，这个是「发了一半」。
+    必须在错误信息里说清已在账户里留下了什么，否则用户不知道要去清理。
+    """
+
+
 class DryRunRequested(Exception):
     """dry-run 模式下的短路信号。
 
@@ -94,10 +111,11 @@ class DryRunRequested(Exception):
     业务函数始终可以假定自己拿到的是真实 data 或正常异常。
     """
 
-    def __init__(self, url, payload):
+    def __init__(self, url, payload, *, approval=None):
         super().__init__("dry-run")
         self.url = url
         self.payload = payload
+        self.approval = approval
 
     def to_dict(self):
         safe = {
@@ -108,4 +126,7 @@ class DryRunRequested(Exception):
             },
             "body": self.payload.get("body"),
         }
-        return {"dry_run": True, "url": self.url, "payload": safe}
+        result = {"dry_run": True, "url": self.url, "payload": safe}
+        if self.approval:
+            result["approval"] = self.approval
+        return result

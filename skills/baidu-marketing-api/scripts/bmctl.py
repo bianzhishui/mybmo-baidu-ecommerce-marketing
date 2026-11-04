@@ -28,11 +28,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from bmclient import BaiduClient, auth, config, load_credential, oauthserver, render  # noqa: E402
+from bmclient import (  # noqa: E402
+    BaiduClient,
+    approval,
+    auth,
+    config,
+    load_credential,
+    oauthserver,
+    render,
+)
 from bmclient.errors import (  # noqa: E402
+    ApprovalRequired,
     BaiduApiError,
     CredentialError,
     DryRunRequested,
+    WriteFailed,
     WriteNotPermitted,
 )
 from bmclient.services import account, kr, transfer, write  # noqa: E402
@@ -175,6 +185,8 @@ def build_parser():
     p_clone.add_argument("--line", choices=["sms", "feed"], default="sms")
     p_clone.add_argument("--execute", action="store_true",
                          help="真正写入目标账户（需投放管理权限，默认只 dry-run）")
+    p_clone.add_argument("--confirm", default=None,
+                         help="预览输出里 approval.digest 的值；--execute 时必须带")
 
     # ---- write ----
     p_write = sub.add_parser(
@@ -185,12 +197,15 @@ def build_parser():
     def execute_flag(p):
         p.add_argument("--execute", action="store_true",
                        help="真正写入账户（需投放管理权限，不加则只打印报文）")
+        p.add_argument("--confirm", default=None,
+                       help="预览输出里 approval.digest 的值；执行写操作必须带，防止跳过审批")
         return p
 
     p_wa = execute_flag(leaf(wr, "word-add", "向单元添加关键词"))
     p_wa.add_argument("--adgroup-id", type=int, required=True, dest="adgroup_id")
     p_wa.add_argument("--words", required=True, help="逗号分隔的词面，中英文逗号都行")
-    p_wa.add_argument("--price", type=float, help="每个词的出价（元），不填用单元默认价")
+    p_wa.add_argument("--price", type=float,
+                      help="每个词的出价（元）；多数接口要求必填，不填可能被拒")
     p_wa.add_argument("--phrase-type", type=int, dest="phrase_type",
                       help="1 精确 / 2 短语 / 3 广泛")
     p_wa.add_argument("--extra", default="", help="额外字段 JSON，合并进每个词")
@@ -223,6 +238,9 @@ def build_parser():
     p_call.add_argument("--body", default="{}", help="JSON 字符串")
     p_call.add_argument("--body-file", help="从文件读 JSON 参数")
     p_call.add_argument("--line", choices=["sms", "feed"], default="sms", help="产品线，feed 走信息流网关")
+    p_call.add_argument("--confirm", default=None,
+                        help="方法名是写类（add/update/delete…）时的审批 digest，"
+                             "由同一条命令加 --dry-run 预览得到")
 
     return parser
 
@@ -261,6 +279,27 @@ def main(argv=None):
     except WriteNotPermitted as exc:
         render.emit({"error": "写操作被拦截", "message": str(exc)}, args.format)
         return 3
+    except ApprovalRequired as exc:
+        render.emit(
+            {
+                "error": "需要用户审批",
+                "message": str(exc),
+                "how": "先不带 --execute 跑一次预览，把报文给用户确认，"
+                       "再用预览里的 approval.digest 作为 --confirm 重跑。",
+            },
+            args.format,
+        )
+        return 4
+    except WriteFailed as exc:
+        render.emit(
+            {
+                "error": "写入中断",
+                "message": str(exc),
+                "hint": "已创建的物料需要到百度后台手工清理，不能假装没发生。",
+            },
+            args.format,
+        )
+        return 5
     except CredentialError as exc:
         render.emit({"error": "凭据错误", "message": str(exc)})
         return 2
@@ -677,7 +716,8 @@ def _run_transfer(args):
 
         target_client, _ = _make_client_from(args.to_account, args)
         result = transfer.apply(
-            target_client, plan, dry_run=not args.execute, product_line=args.line
+            target_client, plan, dry_run=not args.execute, product_line=args.line,
+            confirm=args.confirm,
         )
         result["source"] = plan.get("source")
         render.emit(result, args.format, title="跨账户复制")
@@ -696,25 +736,26 @@ def _run_write(args):
         data = write.add_words(
             client, args.adgroup_id, args.words,
             price=args.price, phrase_type=args.phrase_type, extra=extra,
+            confirm=args.confirm,
         )
         title = "添加关键词"
     elif args.action == "word-update":
-        data = write.update_words(client, _load_items(args))
+        data = write.update_words(client, _load_items(args), confirm=args.confirm)
         title = "修改关键词"
     elif args.action == "word-delete":
-        data = write.delete_words(client, args.word_ids)
+        data = write.delete_words(client, args.word_ids, confirm=args.confirm)
         title = "删除关键词"
     elif args.action == "campaign-update":
         items = _load_items(args)
         if items is None:
             items = [write.campaign_item(args.campaign_id, budget=args.budget, status=args.status)]
-        data = write.update_campaigns(client, items)
+        data = write.update_campaigns(client, items, confirm=args.confirm)
         title = "修改计划"
     elif args.action == "adgroup-update":
         items = _load_items(args)
         if items is None:
             items = [write.adgroup_item(args.adgroup_id, price=args.price, status=args.status)]
-        data = write.update_adgroups(client, items)
+        data = write.update_adgroups(client, items, confirm=args.confirm)
         title = "修改单元"
     else:
         raise ValueError(f"未知写操作：{args.action}")
@@ -747,6 +788,20 @@ def _run_call(args):
         body = json.loads(Path(args.body_file).read_text(encoding="utf-8"))
     else:
         body = _parse_body(args.body)
+
+    # 透传是最大的后门：一条 call 就能调 addWord 改账户。
+    # 所以方法名一像写操作，就必须走和其他写命令同一套审批。
+    if approval.is_write_method(args.method):
+        steps = [{"service": args.service, "method": args.method, "body": body}]
+        alias = getattr(client.cred, "alias", "")
+        if client.dry_run:
+            try:
+                client.call(args.service, args.method, body, product_line=args.line)
+            except DryRunRequested as exc:
+                exc.approval = approval.describe(alias, steps)
+                raise
+        approval.require(getattr(args, "confirm", None), alias, steps)
+
     data = client.call(args.service, args.method, body, product_line=args.line)
     render.emit(data, args.format)
     return 0

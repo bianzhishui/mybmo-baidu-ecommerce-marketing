@@ -9,6 +9,9 @@
 CLI 打印 URL 与完整报文）。所以这里的函数不需要 `dry_run` 参数——
 CLI 决定 client 的 dry_run 属性，故意保持一致，避免两处开关打架。
 
+**审批闸门**：执行必须带 `confirm=<digest>`，digest 来自同一条命令的预览输出。
+没有 confirm 或 digest 对不上，一律拒绝执行且不落审计。详见 `bmclient/approval.py`。
+
 ⚠️ 字段名以百度营销 SMS 接口为准，当前环境无「投放管理」权限，**未经真实账户验证**。
 首次使用务必先跑不带 `--execute` 的预览，逐字段核对后再放行。
 
@@ -23,8 +26,8 @@ import sys
 import time
 from pathlib import Path
 
-from .. import config
-from ..errors import BaiduApiError, WriteNotPermitted
+from .. import approval, config
+from ..errors import BaiduApiError, DryRunRequested, WriteNotPermitted
 
 # ---------- 请求信封 ----------
 # 百度 SMS 接口的 body 统一是 {信封名: [条目...]}。信封名写错会报 99912「JSON invalid」，
@@ -72,7 +75,8 @@ def resolve_status(value):
 # ---------- 对外接口 ----------
 
 
-def add_words(client, adgroup_id, words, *, price=None, phrase_type=None, extra=None):
+def add_words(client, adgroup_id, words, *, price=None, phrase_type=None, extra=None,
+              confirm=None):
     """向单元添加关键词。words 是词面列表，price 会作为每个词的默认出价。"""
     adgroup_id = _require_id(adgroup_id, "adgroup_id")
     items = []
@@ -85,42 +89,48 @@ def add_words(client, adgroup_id, words, *, price=None, phrase_type=None, extra=
         if extra:
             item.update(extra)
         items.append(item)
-    return _write(client, "keyword", "KeywordService", "addWord", items)
+    return _write(client, "keyword", "KeywordService", "addWord", items, confirm=confirm)
 
 
-def update_words(client, items):
+def update_words(client, items, *, confirm=None):
     """批量修改关键词：出价、匹配模式、启停。items 是完整的 keywordTypes 条目。"""
     items = _require_items(items, "keyword", ("wordId",))
-    return _write(client, "keyword", "KeywordService", "updateWord", items)
+    return _write(client, "keyword", "KeywordService", "updateWord", items, confirm=confirm)
 
 
-def delete_words(client, word_ids):
+def delete_words(client, word_ids, *, confirm=None):
     """删除关键词，按 id。"""
     ids = [_require_id(i, "word_id") for i in _clean_list(word_ids, "word_ids")]
     _guard_count(len(ids), "keyword")
-    _record(client, "keyword_delete", "KeywordService", "deleteWord", {"wordIds": ids})
-    try:
-        return client.call("KeywordService", "deleteWord", {"wordIds": ids})
-    except BaiduApiError as exc:
-        raise _translate(exc) from exc
+    return _dispatch(
+        client, "keyword_delete", "KeywordService", "deleteWord",
+        {"wordIds": ids}, len(ids), confirm,
+    )
 
 
-def update_campaigns(client, items):
+def update_campaigns(client, items, *, confirm=None):
     """批量修改计划：预算、启停、地域等。items 是完整的 campaignTypes 条目。"""
     items = _require_items(items, "campaign", ("campaignId",))
-    return _write(client, "campaign", "CampaignService", "updateCampaign", items)
+    return _write(client, "campaign", "CampaignService", "updateCampaign", items,
+                  confirm=confirm)
 
 
-def update_adgroups(client, items):
+def update_adgroups(client, items, *, confirm=None):
     """批量修改单元：出价、启停等。items 是完整的 adgroupTypes 条目。"""
     items = _require_items(items, "adgroup", ("adgroupId",))
-    return _write(client, "adgroup", "AdgroupService", "updateAdgroup", items)
+    return _write(client, "adgroup", "AdgroupService", "updateAdgroup", items,
+                  confirm=confirm)
 
 
-def call_raw(client, level, service, method, items):
-    """逃生通道：按信封包装后直接发，供 CLI 的 --body 透传使用。"""
+def call_raw(client, level, service, method, items, *, confirm=None, _preapproved=False):
+    """逃生通道：按信封包装后直接发，供 CLI 的 --body 透传使用。
+
+    `_preapproved` 只给 transfer 用：那边已经在整份方案上做过一次审批，
+    逐级再要 digest 会让用户被问五次。除 transfer 外不要传这个参数。
+    """
     items = _require_items(items, level)
-    return _write(client, level, service, method, items)
+    return _write(client, level, service, method, items,
+                  confirm=confirm, _preapproved=_preapproved)
 
 
 def campaign_item(campaign_id, *, budget=None, status=None):
@@ -152,11 +162,32 @@ def adgroup_item(adgroup_id, *, price=None, status=None):
 # ---------- 内部实现 ----------
 
 
-def _write(client, level, service, method, items):
+def _write(client, level, service, method, items, *, confirm=None, _preapproved=False):
     _guard_count(len(items), level)
-    envelope = ENVELOPES[level]
-    body = {envelope: items}
-    _record(client, f"{level}_write", service, method, body, count=len(items))
+    body = {ENVELOPES[level]: items}
+    return _dispatch(client, f"{level}_write", service, method, body, len(items),
+                     confirm, _preapproved=_preapproved)
+
+
+def _dispatch(client, action, service, method, body, count, confirm=None, *,
+              _preapproved=False):
+    """所有写操作的最后一道关卡：预览给 digest，执行验 digest。
+
+    顺序很重要——先算审批再落审计。审批没过就不该留下"尝试写入"的日志，
+    否则审计里会混进一堆根本没发出去的记录。
+    """
+    alias = getattr(client.cred, "alias", "")
+    steps = [{"service": service, "method": method, "body": body}]
+
+    if getattr(client, "dry_run", False):
+        try:
+            return client.call(service, method, body)
+        except DryRunRequested as exc:
+            exc.approval = approval.describe(alias, steps)
+            raise
+
+    digest = None if _preapproved else approval.require(confirm, alias, steps)
+    _record(client, action, service, method, body, count=count, digest=digest)
     try:
         return client.call(service, method, body)
     except BaiduApiError as exc:
@@ -227,7 +258,7 @@ def audit_path(when=None):
     return config.home_dir() / "audit" / f"{stamp}.jsonl"
 
 
-def _record(client, action, service, method, body, *, count=None):
+def _record(client, action, service, method, body, *, count=None, digest=None):
     """真实写入前先落审计。dry-run 不记——预览不是动作。"""
     if getattr(client, "dry_run", False):
         return
@@ -239,6 +270,7 @@ def _record(client, action, service, method, body, *, count=None):
         "alias": getattr(client.cred, "alias", ""),
         "user_name": getattr(client.cred, "user_name", ""),
         "count": count,
+        "approval_digest": digest,
         "body": body,
     }
     try:

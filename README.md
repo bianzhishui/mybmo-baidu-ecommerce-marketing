@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.7.0-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.7.1-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.7.0` |
+| 版本 | `1.7.1` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | Python 3 标准库，**零第三方依赖** |
@@ -107,20 +107,25 @@ python3 scripts/bmctl.py --account axd kr expand --seed "猫粮"
 | `write word-delete --word-ids 11,22` | 按 id 删词 |
 | `write campaign-update --campaign-id 1 --budget 300` | 改计划预算 / 启停 |
 | `write adgroup-update --adgroup-id 9 --price 2.5` | 改单元出价 / 启停 |
-| `call --service X --method y --body '{...}'` | 通用透传任意接口 |
+| `call --service X --method y --body '{...}'` | 通用透传任意接口（写类方法同样要 `--confirm`） |
 
-`write` 与 `transfer clone` 都**默认 dry-run**：不加 `--execute` 只打印 URL 与报文（令牌已脱敏），
-确认后再加 `--execute`：
+`write` 与 `transfer clone` 都是**两步审批**：先预览拿 `digest`，再带 digest 执行。
+只加 `--execute` 不带 `--confirm` 会被拒绝（退出码 4）——这是命令层面的强制，不靠自觉。
 
 ```bash
-# 1. 预览
+# 1. 预览：打印 URL、报文（令牌已脱敏）与 approval.digest
 python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
   --words "月季,玫瑰花" --price 3.5 --phrase-type 2
+# → "approval": { "digest": "cfa5cd773f5bdf99", ... }
 
-# 2. 确认无误后写入
+# 2. 把报文给用户核对，确认后用那个 digest 执行
 python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
-  --words "月季,玫瑰花" --price 3.5 --phrase-type 2 --execute
+  --words "月季,玫瑰花" --price 3.5 --phrase-type 2 \
+  --execute --confirm cfa5cd773f5bdf99
 ```
+
+digest 是报文内容的指纹：没预览就拿不到，预览后改了参数（哪怕只改一个出价）也会失效。
+执行被拒时**不会**回显正确 digest，避免被直接抄走绕过审批。
 
 透传时方法名支持小写蛇形，脚本自动转驼峰：
 
@@ -217,6 +222,7 @@ mybmo-baidu-ecommerce-marketing/
 │           ├── config.py           # 多账户凭据解析
 │           ├── auth.py             # 令牌刷新 / 授权码换取
 │           ├── oauthserver.py      # 内置回调服务
+│           ├── approval.py         # 写操作审批指纹（预览 → digest → 执行）
 │           ├── transport.py        # HTTP + 鉴权 + 重试
 │           ├── errors.py           # 错误码释义
 │           ├── render.py           # JSON / Markdown 输出
@@ -237,7 +243,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 60 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 93 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
@@ -310,8 +316,8 @@ EXPERT_MANAGER_DIR=/path/to/skills/expert-manager/scripts ./tools/build-zip.sh
 
 - **凭据不入库**：令牌只存在本机 `~/.workbuddy/baidu-marketing/accounts/`，`.gitignore` 已排除 `accounts/`、`*.token`、`.env`。
 - **运行时零依赖**：纯 Python 标准库，不引入任何外部包（`pytest` / `ruff` 仅开发时使用），减少供应链面。
-- **写操作默认 dry-run**：不加 `--execute` 只打印报文，不会碰到账户；权限不足时本地拦截（退出码 3），不发出半截请求。
-- **写操作留痕**：每次真实写入追加到 `~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，含账户、动作、物料、完整报文，出问题可按天回溯。
+- **写操作强制两步审批**：预览拿 digest 才能执行，没预览或报文被改过一律拒绝（退出码 4）；权限不足时本地拦截（退出码 3），不发出半截请求。
+- **写操作留痕**：每次真实写入追加到 `~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，含账户、动作、物料、完整报文与审批 digest，出问题可按天回溯。
 - **批量有上限**：单次 200 词 / 20 计划 / 50 单元，超限直接拒绝而不是替你分批跑——改太多出错时无法人工核对。
 - **回调服务只监听 `127.0.0.1`**，公网靠隧道转发，不做 AES 验签而改为校验 state 的 base 部分。
 

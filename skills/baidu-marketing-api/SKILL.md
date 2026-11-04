@@ -109,7 +109,7 @@ python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者ui
 | `write word-delete --word-ids 11,22` | 按 id 删词 |
 | `write campaign-update --campaign-id 1 --budget 300` | 改计划预算 / 启停 |
 | `write adgroup-update --adgroup-id 9 --price 2.5` | 改单元出价 / 启停 |
-| `call --service X --method y --body '{...}'` | 通用透传任意接口 |
+| `call --service X --method y --body '{...}'` | 通用透传任意接口（写类方法同样要 `--confirm`） |
 
 透传时方法名支持小写蛇形，脚本自动转驼峰：
 
@@ -173,42 +173,49 @@ python3 scripts/bmctl.py transfer clone --plan-file plan.json --to-account axd -
 
 ## 五点五、写操作
 
-支持直接改账户：加词、改价、改匹配、启停、改预算。**所有写命令默认只打印报文，
-加 `--execute` 才真正发出。**
+支持直接改账户：加词、改价、改匹配、启停、改预算。**写操作必须两步走，不能一步到位。**
+
+### 两步审批：预览 → 拿 digest → 执行
 
 ```bash
-# 把一组词加进单元，统一出价 3.5、短语匹配
+# 第一步：预览（不带 --execute）。会打印完整报文，并给出 approval.digest
 python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
-  --words "月季,玫瑰花,月季花苗" --price 3.5 --phrase-type 2
+  --words "月季,玫瑰花" --price 3.5 --phrase-type 2
+# 输出里： "approval": {"digest": "cfa5cd773f5bdf99", ...}
 
-# 确认无误后再加 --execute
+# 第二步：把报文给用户核对，得到明确同意后，用那个 digest 执行
 python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
-  --words "月季,玫瑰花,月季花苗" --price 3.5 --phrase-type 2 --execute
-
-# 改出价 / 暂停：字段名以百度接口为准，用 JSON 条目最稳
-python3 scripts/bmctl.py write word-update --items '[{"wordId":333,"price":2.8}]'
-
-# 改计划预算、暂停计划
-python3 scripts/bmctl.py write campaign-update --campaign-id 111 --budget 300 --status pause
+  --words "月季,玫瑰花" --price 3.5 --phrase-type 2 \
+  --execute --confirm cfa5cd773f5bdf99
 ```
 
-四条铁律：
+**为什么必须有 digest**：它是报文内容的指纹。
 
-1. **先预览再执行**。默认 dry-run 会打印完整 URL 与报文（令牌已脱敏）。
-   任何一次 `--execute` 之前，都要把报文里的价格、地域、落地页、否定词过一遍。
-2. **报数不报「已处理」**。写成功后要如实给出接口返回的 id 数量；失败要说清是哪一级、
+- 没有 digest → 说明没预览过 → 直接拒绝（退出码 4）
+- digest 与当前报文不符 → 说明预览之后改了参数 → 也拒绝
+
+所以「先给用户看，再写」不是靠自觉，而是命令层面强制。digest **只会出现在预览输出里**，
+执行被拒时不会回显——别想从错误信息里抄一个。
+
+### 四条铁律
+
+1. **先预览再执行，且要等用户回复。** 把报文里的价格、匹配模式、adgroupId、预算列成表格
+   让用户确认。用户说「加吧」之后再跑第二步。不要在同一条消息里既预览又执行。
+2. **报数不报「已处理」**。写成功后要如实给出接口返回的 id 与数量；失败要说清是哪一级、
    哪个物料，不能含糊成"部分成功"。
 3. **批量有上限**：一次最多 200 词 / 20 计划 / 50 单元。超限直接拒绝，不是分批替你跑——
    改太多出错时没法人工核对。
 4. **每次真实写入都落审计**：`~/.workbuddy/baidu-marketing/audit/YYYY-MM-DD.jsonl`，
-   记录账户、物料、完整报文。出问题按这个文件回溯。
+   记录账户、物料、完整报文和审批 digest。
 
-失败时怎么判断：
+### 失败时怎么判断
 
-| 现象 | 含义 | 做法 |
+| 退出码 / 现象 | 含义 | 做法 |
 |---|---|---|
-| 退出码 3 + 提示「需要投放管理权限」 | 权限域未开通（89406 已翻译） | 去开发者后台补权限并重新授权 |
-| 退出码 2 +「参数错误」 | 本地拦截：缺字段 / 超批量 / 空列表 | 按提示补参数，未发出任何请求 |
+| 4 +「需要用户审批」 | 没带 `--confirm`，或 digest 对不上 | 重新预览，用新 digest 执行，别跳过 |
+| 3 +「需要投放管理权限」 | 权限域未开通（89406 已翻译） | 去开发者后台补权限并重新授权 |
+| 5 +「写入中断」 | 写了一半失败（如建了计划却拿不到 id） | 立刻告诉用户账户里已留下什么，需手工清理 |
+| 2 +「参数错误」 | 本地拦截：缺字段 / 超批量 / 空列表 | 按提示补参数，未发出任何请求 |
 | 接口返回 81020 | userName 与令牌不属同一账户 | 用 `--account` 指定，别混用凭据 |
 
 ## 六、能力边界
@@ -227,7 +234,10 @@ python3 scripts/bmctl.py write campaign-update --campaign-id 111 --budget 300 --
 
 **本能力既能读也能写**：拓词、账户数据、投放结构导出是读；加词、改价、启停、改预算、
 跨账户复制是写。写操作走 `write` / `transfer clone --execute`，默认 dry-run，
-必须显式加 `--execute` 才发请求，且每次真实写入都落审计。
+必须带预览得到的 `--confirm <digest>` 才发请求，且每次真实写入都落审计。
+
+`call` 通用透传**不豁免审批**：方法名不是 `get* / query* / list* / search*` 开头的一律按写操作处理，
+同样要 `--confirm`。判断不出来时按写处理——多要一次审批，好过误改账户。
 
 写能力**强依赖「投放管理」权限域**。只有「工具」域时读接口正常、写接口一律 89406——
 所以「拓词能跑」不代表「能改账户」，这两件事别混着说。

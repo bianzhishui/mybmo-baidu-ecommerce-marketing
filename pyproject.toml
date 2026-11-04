@@ -1,6 +1,6 @@
 [project]
 name = "mybmo-baidu-ecommerce-marketing"
-version = "1.7.0"
+version = "1.7.1"
 description = "WorkBuddy plugin: Baidu e-commerce marketing officer, backed by real keyword data from the Baidu Marketing Open Platform API"
 readme = "README.md"
 requires-python = ">=3.9"

@@ -74,3 +74,117 @@ def test_accounts_use_unknown_account_fails(tmp_dir):
     result = run_cli(["accounts", "use", "ghost"], tmp_dir)
 
     assert result.returncode != 0
+
+
+# ---------- 写操作审批闸门（走真实 CLI，验证退出码与 JSON 契约） ----------
+
+
+def seed_account(home, alias="demo"):
+    accounts = home / "accounts"
+    accounts.mkdir(parents=True, exist_ok=True)
+    (accounts / f"{alias}.json").write_text(
+        json.dumps(
+            {
+                "alias": alias,
+                "user_name": "演示账户",
+                "access_token": "tok",
+                "expires_at": time.time() + 3600,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (home / "default").write_text(alias, encoding="utf-8")
+
+
+def test_write_preview_returns_digest(tmp_dir):
+    seed_account(tmp_dir)
+
+    result = run_cli(
+        ["write", "word-add", "--adgroup-id", "9", "--words", "月季", "--price", "2"],
+        tmp_dir,
+    )
+
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["dry_run"] is True
+    assert len(data["approval"]["digest"]) == 16
+    assert "keywordTypes" in data["payload"]["body"]
+
+
+def test_write_execute_without_confirm_exits_4(tmp_dir):
+    seed_account(tmp_dir)
+
+    result = run_cli(
+        ["write", "word-add", "--adgroup-id", "9", "--words", "月季", "--execute"],
+        tmp_dir,
+    )
+
+    assert result.returncode == 4, "缺审批必须拒绝执行"
+    data = json.loads(result.stdout)
+    assert data["error"] == "需要用户审批"
+    assert "--confirm" in data["how"]
+
+
+def test_write_execute_with_bad_confirm_exits_4(tmp_dir):
+    seed_account(tmp_dir)
+
+    result = run_cli(
+        [
+            "write", "word-add", "--adgroup-id", "9", "--words", "月季",
+            "--execute", "--confirm", "0000000000000000",
+        ],
+        tmp_dir,
+    )
+
+    assert result.returncode == 4
+
+
+def test_write_execute_never_leaves_audit_when_refused(tmp_dir):
+    seed_account(tmp_dir)
+
+    run_cli(
+        ["write", "word-add", "--adgroup-id", "9", "--words", "月季", "--execute"],
+        tmp_dir,
+    )
+
+    audit_dir = tmp_dir / "audit"
+    assert not audit_dir.exists() or not list(audit_dir.iterdir())
+
+
+def test_call_write_method_is_gated(tmp_dir):
+    """透传是最容易绕过审批的后门，必须同样拦住。"""
+    seed_account(tmp_dir)
+
+    result = run_cli(
+        ["call", "--service", "KeywordService", "--method", "addWord",
+         "--body", '{"keywordTypes":[]}'],
+        tmp_dir,
+    )
+
+    assert result.returncode == 4
+    assert json.loads(result.stdout)["error"] == "需要用户审批"
+
+
+def test_call_read_method_not_gated(tmp_dir):
+    seed_account(tmp_dir)
+
+    result = run_cli(
+        ["call", "--service", "AccountService", "--method", "getAccountInfo"], tmp_dir
+    )
+
+    assert result.returncode != 4, "读方法不该被审批拦住"
+
+
+def test_call_write_preview_returns_digest(tmp_dir):
+    seed_account(tmp_dir)
+
+    result = run_cli(
+        ["call", "--dry-run", "--service", "KeywordService", "--method", "addWord",
+         "--body", '{"keywordTypes":[{"adgroupId":9,"word":"月季"}]}'],
+        tmp_dir,
+    )
+
+    assert result.returncode == 0
+    assert len(json.loads(result.stdout)["approval"]["digest"]) == 16
+

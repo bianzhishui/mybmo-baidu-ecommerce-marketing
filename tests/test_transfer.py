@@ -1,13 +1,15 @@
-"""跨账户复制：报文信封、id 剔除、写入链路串联。
+"""跨账户复制：报文信封、id 剔除、审批闸门、写入链路串联。
 
-重点验证「每级用上一级返回的新 id」——这是跨账户复制最容易写错的地方。
+重点验证两件事：
+  1. 每级用上一级返回的新 id —— 这是跨账户复制最容易写错的地方
+  2. 没有审批 digest 就不许写
 """
 
 from types import SimpleNamespace
 
 import pytest
 
-from bmclient.errors import WriteNotPermitted
+from bmclient.errors import ApprovalRequired, WriteFailed, WriteNotPermitted
 from bmclient.services import transfer
 
 
@@ -48,6 +50,16 @@ PLAN = {
     ],
 }
 
+CREATED = {
+    "addCampaign": [{"campaignId": 9001}],
+    "addAdgroup": [{"adgroupId": 8001}],
+    "addWord": [{"wordId": 7001}],
+}
+
+
+def digest_for(plan=PLAN):
+    return transfer.apply(FakeClient(), plan, dry_run=True)["approval"]["digest"]
+
 
 # ---------- 报文构造 ----------
 
@@ -72,40 +84,57 @@ def test_build_steps_rejects_feed_line():
     assert "信息流" in str(exc.value)
 
 
-# ---------- dry-run ----------
+# ---------- 审批闸门 ----------
 
 
-def test_apply_dry_run_sends_nothing():
+def test_preview_carries_digest():
     client = FakeClient()
 
     result = transfer.apply(client, PLAN, dry_run=True)
 
     assert result["dry_run"] is True
-    assert result["steps"]
+    assert len(result["approval"]["digest"]) == 16
+    assert result["approval"]["items"] == 2 + 2  # 计划+单元 + 2 个词
+    assert client.calls == [], "预览不该发请求"
+
+
+def test_execute_without_confirm_is_refused():
+    client = FakeClient(responses=CREATED)
+
+    with pytest.raises(ApprovalRequired) as exc:
+        transfer.apply(client, PLAN, dry_run=False)
+
+    assert "先运行一次不带 --execute 的预览" in str(exc.value)
+    assert client.calls == [], "没审批就一条都不许发"
+
+
+def test_execute_rejects_stale_digest():
+    client = FakeClient(responses=CREATED)
+    plan = {
+        **PLAN,
+        "campaigns": [{**PLAN["campaigns"][0], "name": "被改过的计划"}],
+    }
+
+    with pytest.raises(ApprovalRequired):
+        transfer.apply(client, plan, dry_run=False, confirm=digest_for())
+
     assert client.calls == []
 
 
 # ---------- 真实写入链路 ----------
 
 
-def test_apply_execute_chains_parent_ids():
-    client = FakeClient(
-        responses={
-            "addCampaign": [{"campaignId": 9001}],
-            "addAdgroup": [{"adgroupId": 8001}],
-            "addWord": [{"wordId": 7001}],
-        }
-    )
+def test_execute_chains_parent_ids():
+    client = FakeClient(responses=CREATED)
 
-    result = transfer.apply(client, PLAN, dry_run=False)
+    result = transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
 
     assert result["dry_run"] is False
     assert result["created"]["campaigns"][0]["campaignId"] == 9001
     assert result["created"]["adgroups"][0]["adgroupId"] == 8001
     assert result["created"]["keywords"] == 2
 
-    methods = [c["method"] for c in client.calls]
-    assert methods == ["addCampaign", "addAdgroup", "addWord"]
+    assert [c["method"] for c in client.calls] == ["addCampaign", "addAdgroup", "addWord"]
 
     adgroup_body = client.calls[1]["body"]["adgroupTypes"][0]
     assert adgroup_body["campaignId"] == 9001, "单元必须挂到新建的计划下"
@@ -114,19 +143,19 @@ def test_apply_execute_chains_parent_ids():
     assert all(w["adgroupId"] == 8001 for w in keyword_items), "关键词必须挂到新建的单元下"
 
 
-def test_apply_execute_refuses_to_guess_missing_id():
+def test_execute_refuses_to_guess_missing_id():
     client = FakeClient(responses={"addCampaign": []})
 
-    with pytest.raises(WriteNotPermitted) as exc:
-        transfer.apply(client, PLAN, dry_run=False)
+    with pytest.raises(WriteFailed) as exc:
+        transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
 
     assert "未返回 campaignId" in str(exc.value)
 
 
-def test_apply_stops_before_children_when_campaign_fails():
+def test_execute_stops_before_children_when_campaign_fails():
     client = FakeClient(responses={"addCampaign": WriteNotPermitted("权限不足")})
 
     with pytest.raises(WriteNotPermitted):
-        transfer.apply(client, PLAN, dry_run=False)
+        transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
 
     assert [c["method"] for c in client.calls] == ["addCampaign"]

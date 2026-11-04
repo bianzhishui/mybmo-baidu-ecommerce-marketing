@@ -1,6 +1,6 @@
 {
   "name": "mybmo-baidu-ecommerce-marketing",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Baidu e-commerce marketing officer for Search ads, Feed DPA, Baidu Youxuan and ROAS review. Turns product images into data-backed keyword groups through the Baidu Marketing Open Platform API.",
   "agents": [
     "./agents/MyBMO.md"
