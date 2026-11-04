@@ -118,3 +118,30 @@ def test_source_parses_under_python_36():
     import ast
 
     ast.parse(BMCTL.read_text(encoding="utf-8"), feature_version=(3, 6))
+
+
+def test_argparse_help_has_no_bare_percent():
+    """argparse 把 help 文案当 %-格式串处理。
+
+    3.14 起在 add_argument 阶段就校验，裸 `%` 会抛 ValueError: incomplete format，
+    整个 CLI 直接起不来——3.13 及以前不报错，所以这个坑只有跑过 3.14 才会发现。
+    """
+    import re
+
+    src = BMCTL.read_text(encoding="utf-8")
+    offenders = []
+    for match in re.finditer(r'help=(?:"([^"]*)"|\'([^\']*)\')', src):
+        text = match.group(1) or match.group(2) or ""
+        if "%" in text.replace("%%", ""):
+            lineno = src.count("\n", 0, match.start()) + 1
+            offenders.append(f"bmctl.py:{lineno} help 文案含裸 %")
+
+    assert offenders == [], "\n".join(offenders)
+
+
+def test_runtime_json_records_tested_versions():
+    data = json.loads(RUNTIME_JSON.read_text(encoding="utf-8"))
+    tested = data["runtime"]["python_tested"]
+
+    assert tested, "应记录实测过的版本，避免声称支持却从未验证"
+    assert tested[0].startswith("3.9"), "最低版本必须实测过"

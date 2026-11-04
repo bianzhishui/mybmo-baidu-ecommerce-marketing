@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.8.0-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.8.1-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.8.0` |
+| 版本 | `1.8.1` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | Python 3.9+，纯标准库**零第三方依赖**；macOS / Linux / Windows |
@@ -56,6 +56,7 @@
 | 项 | 要求 |
 |---|---|
 | Python | **3.9 及以上**。低于门槛时 `bmctl.py` 会在启动阶段给出中文提示并以**退出码 6** 结束，不会抛裸 Traceback |
+| 实测版本 | 3.9.6 / 3.13.12 / 3.14.2（三档各跑完整测试套件）。上限未设限——只要 3.9+ 的语法与标准库行为不变就能跑 |
 | 依赖 | **无**。纯标准库实现，不需要 `pip install`，也不联网下载任何包 |
 | 平台 | macOS / Linux / Windows。三者的解释器命令不同，见下 |
 
@@ -276,7 +277,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 123 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 125 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```

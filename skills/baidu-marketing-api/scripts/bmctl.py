@@ -169,7 +169,8 @@ def build_parser():
 
     p_link = leaf(auth_sub, "link", "生成授权链接（发给推广账户持有人）")
     p_link.add_argument("--app-id", required=True)
-    p_link.add_argument("--callback", required=True, help="公网可达的回调地址，不能带 ? 或 %")
+    # 注意 `%%`：argparse 会把 help 文案当 %-格式串处理，裸 % 在 3.14 上直接 ValueError
+    p_link.add_argument("--callback", required=True, help="公网可达的回调地址，不能带 ? 或 %%")
     p_link.add_argument("--scope", default="", help="权限代码")
     p_link.add_argument("--state", default="", help="自定义 state，留空需配合 --developer-uid")
     p_link.add_argument("--developer-uid", default="", help="创建应用的开发者 uid")
