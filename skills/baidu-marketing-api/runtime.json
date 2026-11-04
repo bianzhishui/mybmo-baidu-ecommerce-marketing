@@ -19,7 +19,6 @@
   },
   "interpreter_note": "仅在 uv 不可用、且机器已有 Python 3.9+ 时使用；正常情况下 Python 版本由 uv 按脚本头部元数据决定",
   "credentials_dir": "~/.baidu-marketing",
-  "credentials_dir_note": "可用 BM_HOME 环境变量覆盖；旧版本曾用 ~/.workbuddy/baidu-marketing，若新目录不存在而旧目录存在会自动沿用",
   "network": "https://api.baidu.com",
   "local_ports": [8080],
   "preflight": "uv 读 bmctl.py 的 PEP 723 块准备隔离环境；脚本再按 MIN_PYTHON 常量校验解释器，低于 3.9 输出中文提示并退出码 6"

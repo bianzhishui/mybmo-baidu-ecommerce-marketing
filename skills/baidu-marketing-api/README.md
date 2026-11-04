@@ -87,12 +87,10 @@ baidu-marketing-api/
 
 `~/.baidu-marketing/accounts/<alias>.json`，**不随技能分发**，每台机器需单独授权一次。
 
-位置解析顺序：
+位置只有两个：
 
 1. 环境变量 `BM_HOME`（显式指定时以它为准）
 2. `~/.baidu-marketing`（默认）
-3. `~/.workbuddy/baidu-marketing`（旧版本位置；新目录不存在而它存在时自动沿用，
-   老用户升级后凭据不会"凭空消失"）
 
 想换到别处（例如放进项目目录或加密盘）：
 

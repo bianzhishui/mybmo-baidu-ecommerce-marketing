@@ -296,7 +296,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 150 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 149 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```

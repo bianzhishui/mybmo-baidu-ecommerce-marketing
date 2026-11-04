@@ -2,6 +2,7 @@
 
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -150,8 +151,7 @@ def test_public_dict_masks_tokens():
 
 # ---------- 数据目录解析 ----------
 #
-# 技能要能被非 WorkBuddy 的 agent 加载，默认目录不再带平台品牌。
-# 但老用户的凭据还在旧位置，不能让人升级后"账户凭空消失"。
+# 技能要能被任意 agent 加载，默认目录不做平台绑定，也不做旧路径兼容。
 
 
 def test_home_dir_prefers_env(monkeypatch, tmp_dir):
@@ -160,32 +160,17 @@ def test_home_dir_prefers_env(monkeypatch, tmp_dir):
     assert config.home_dir() == tmp_dir / "custom"
 
 
-def test_home_dir_uses_new_default_when_empty(monkeypatch, tmp_dir):
+def test_home_dir_uses_default_without_env(monkeypatch, tmp_dir):
     monkeypatch.delenv("BM_HOME", raising=False)
     monkeypatch.setattr(config, "DEFAULT_HOME", tmp_dir / "new")
-    monkeypatch.setattr(config, "LEGACY_HOME", tmp_dir / "legacy")
 
     assert config.home_dir() == tmp_dir / "new"
 
 
-def test_home_dir_falls_back_to_legacy(monkeypatch, tmp_dir):
-    """新目录没建过、旧目录有数据 → 沿用旧目录，否则老用户会以为凭据丢了。"""
-    monkeypatch.delenv("BM_HOME", raising=False)
-    monkeypatch.setattr(config, "DEFAULT_HOME", tmp_dir / "new")
-    monkeypatch.setattr(config, "LEGACY_HOME", tmp_dir / "legacy")
-    (tmp_dir / "legacy").mkdir()
+def test_env_home_is_expanded(monkeypatch):
+    monkeypatch.setenv("BM_HOME", "~/somewhere")
 
-    assert config.home_dir() == tmp_dir / "legacy"
-
-
-def test_home_dir_keeps_new_default_when_both_exist(monkeypatch, tmp_dir):
-    monkeypatch.delenv("BM_HOME", raising=False)
-    monkeypatch.setattr(config, "DEFAULT_HOME", tmp_dir / "new")
-    monkeypatch.setattr(config, "LEGACY_HOME", tmp_dir / "legacy")
-    (tmp_dir / "new").mkdir()
-    (tmp_dir / "legacy").mkdir()
-
-    assert config.home_dir() == tmp_dir / "new"
+    assert config.home_dir() == Path("~/somewhere").expanduser()
 
 
 def test_default_home_is_platform_neutral():

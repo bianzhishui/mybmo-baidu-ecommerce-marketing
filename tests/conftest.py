@@ -15,11 +15,8 @@ from pathlib import Path
 
 import pytest
 
-# 真实目录有两个：当前默认与历史位置。两边都要守，漏一边照样能污染。
-REAL_BAIDU_HOMES = (
-    Path.home() / ".baidu-marketing",
-    Path.home() / ".workbuddy" / "baidu-marketing",
-)
+# 真实数据目录。测试一旦漏隔离就会写到这里，必须守死。
+REAL_BAIDU_HOME = Path.home() / ".baidu-marketing"
 
 
 @pytest.fixture
@@ -44,14 +41,10 @@ def isolate_bm_home(tmp_dir, monkeypatch):
 
 def _snapshot_real_audit():
     """记录真实审计目录的文件指纹，用于会话前后比对。"""
-    snapshot = {}
-    for home in REAL_BAIDU_HOMES:
-        audit = home / "audit"
-        if not audit.is_dir():
-            continue
-        for path in sorted(audit.glob("*.jsonl")):
-            snapshot[str(path)] = path.stat().st_size
-    return snapshot
+    audit = REAL_BAIDU_HOME / "audit"
+    if not audit.is_dir():
+        return {}
+    return {p.name: p.stat().st_size for p in sorted(audit.glob("*.jsonl"))}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -71,7 +64,7 @@ def guard_real_home():
     if added or changed:
         raise AssertionError(
             "测试污染了真实审计目录！\n"
-            f"  目录: {[str(h / 'audit') for h in REAL_BAIDU_HOMES]}\n"
+            f"  目录: {REAL_BAIDU_HOME / 'audit'}\n"
             f"  新增: {sorted(added)}\n"
             f"  变更: {sorted(changed)}\n"
             "某个测试没有隔离 BM_HOME，或显式删掉了它。"

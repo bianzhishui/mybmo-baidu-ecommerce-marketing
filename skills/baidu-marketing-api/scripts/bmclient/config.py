@@ -11,8 +11,6 @@
 目录位置解析顺序（高 → 低）：
 1. 环境变量 `BM_HOME`（显式指定，最高优先级）
 2. `~/.baidu-marketing`（默认）
-3. `~/.workbuddy/baidu-marketing`（历史位置，仅在默认不存在且它存在时沿用，
-   避免老用户升级后"账户凭空消失"）
 
 本模块不依赖任何特定 agent 平台，也不依赖外部项目的数据库，凭据完全自持。
 
@@ -34,8 +32,6 @@ from pathlib import Path
 from .errors import CredentialError
 
 DEFAULT_HOME = Path.home() / ".baidu-marketing"
-# 旧默认目录：曾经硬编码过 WorkBuddy 的配置目录，老用户的凭据可能还在这里
-LEGACY_HOME = Path.home() / ".workbuddy" / "baidu-marketing"
 ACCOUNTS_DIRNAME = "accounts"
 DEFAULT_ALIAS_FILE = "default"
 
@@ -130,13 +126,9 @@ class Credential:
 
 
 def home_dir():
-    """数据目录。BM_HOME 优先；否则新默认；新默认没建过但旧位置有数据时沿用旧位置。"""
+    """数据目录：BM_HOME 优先，否则 ~/.baidu-marketing。"""
     env = os.getenv("BM_HOME")
-    if env:
-        return Path(env).expanduser()
-    if not DEFAULT_HOME.exists() and LEGACY_HOME.exists():
-        return LEGACY_HOME
-    return DEFAULT_HOME
+    return Path(env).expanduser() if env else DEFAULT_HOME
 
 
 def accounts_dir():
