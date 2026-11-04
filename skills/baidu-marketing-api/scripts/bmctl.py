@@ -715,8 +715,12 @@ def _run_transfer(args):
             plan = transfer.rename_plan(plan, prefix=args.prefix, suffix=args.suffix)
 
         target_client, _ = _make_client_from(args.to_account, args)
+        # 与 write 保持一致：显式 --dry-run 优先，其次才看 --execute。
+        # 否则 `--execute --dry-run` 两条自相矛盾的参数会走到半截怪异行为。
         result = transfer.apply(
-            target_client, plan, dry_run=not args.execute, product_line=args.line,
+            target_client, plan,
+            dry_run=bool(getattr(args, "dry_run", False)) or not args.execute,
+            product_line=args.line,
             confirm=args.confirm,
         )
         result["source"] = plan.get("source")
@@ -790,7 +794,7 @@ def _run_call(args):
         body = _parse_body(args.body)
 
     # 透传是最大的后门：一条 call 就能调 addWord 改账户。
-    # 所以方法名一像写操作，就必须走和其他写命令同一套审批。
+    # 所以方法名一像写操作，就必须走和其他写命令同一套审批，并同样落审计。
     if approval.is_write_method(args.method):
         steps = [{"service": args.service, "method": args.method, "body": body}]
         alias = getattr(client.cred, "alias", "")
@@ -802,7 +806,8 @@ def _run_call(args):
                     alias, steps, summary=f"透传调用 {args.service}/{args.method}"
                 )
                 raise
-        approval.require(getattr(args, "confirm", None), alias, steps)
+        digest = approval.require(getattr(args, "confirm", None), alias, steps)
+        write.audit_external(client, args.service, args.method, body, digest=digest)
 
     data = client.call(args.service, args.method, body, product_line=args.line)
     render.emit(data, args.format)

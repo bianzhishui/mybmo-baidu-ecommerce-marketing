@@ -10,7 +10,14 @@ from types import SimpleNamespace
 import pytest
 
 from bmclient.errors import ApprovalRequired, WriteFailed, WriteNotPermitted
-from bmclient.services import transfer
+from bmclient.services import transfer, write
+
+
+@pytest.fixture(autouse=True)
+def _isolate_bm_home(tmp_dir, monkeypatch):
+    """审计会真的落盘。不隔离就会把测试假数据写进用户真实审计目录——
+    这个坑真踩过：50 条 alias=target 的假记录混进了 ~/.workbuddy/baidu-marketing/audit。"""
+    monkeypatch.setenv("BM_HOME", str(tmp_dir))
 
 
 class FakeClient:
@@ -170,3 +177,20 @@ def test_execute_stops_before_children_when_campaign_fails():
         transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
 
     assert [c["method"] for c in client.calls] == ["addCampaign"]
+
+
+def test_execute_audits_every_level_with_plan_digest():
+    """整份方案只在开头审批一次，但每级写入都要能追回到那次审批。"""
+    client = FakeClient(responses=CREATED)
+    digest = digest_for()
+
+    transfer.apply(client, PLAN, dry_run=False, confirm=digest)
+
+    rows = write.read_audit()
+    assert len(rows) == 3, "计划、单元、关键词各一条"
+    assert {r["approval_digest"] for r in rows} == {digest}
+    assert {r["action"] for r in rows} == {"campaign_write", "adgroup_write", "keyword_write"}
+
+
+def test_audit_isolation_does_not_touch_real_home(tmp_dir):
+    assert str(write.audit_path()).startswith(str(tmp_dir))

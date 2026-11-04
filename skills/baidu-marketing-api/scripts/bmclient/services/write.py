@@ -130,16 +130,24 @@ def update_adgroups(client, items, *, confirm=None):
                   confirm=confirm, summary=f"修改 {len(items)} 个单元（出价 / 状态）")
 
 
-def call_raw(client, level, service, method, items, *, confirm=None, _preapproved=False):
+def call_raw(client, level, service, method, items, *, confirm=None, _preapproved=False,
+             _approval_digest=None):
     """逃生通道：按信封包装后直接发，供 CLI 的 --body 透传使用。
 
-    `_preapproved` 只给 transfer 用：那边已经在整份方案上做过一次审批，
-    逐级再要 digest 会让用户被问五次。除 transfer 外不要传这个参数。
+    `_preapproved` / `_approval_digest` 只给 transfer 用：那边已经在整份方案上
+    做过一次审批，逐级再要 digest 会让用户被问五次。但**审批指纹必须传下来**，
+    否则审计里这批写入的 approval_digest 全是 null，事后追不到是哪次预览授权的。
     """
     items = _require_items(items, level)
     return _write(client, level, service, method, items,
                   confirm=confirm, _preapproved=_preapproved,
+                  _approval_digest=_approval_digest,
                   summary=f"透传调用 {service}/{method}")
+
+
+def audit_external(client, service, method, body, *, digest=None, count=None):
+    """给 `call` 透传写方法用的审计入口——它不走 _dispatch，但同样是真实写入。"""
+    _record(client, "call_write", service, method, body, count=count, digest=digest)
 
 
 def campaign_item(campaign_id, *, budget=None, status=None):
@@ -172,15 +180,16 @@ def adgroup_item(adgroup_id, *, price=None, status=None):
 
 
 def _write(client, level, service, method, items, *, confirm=None, _preapproved=False,
-           summary=""):
+           summary="", _approval_digest=None):
     _guard_count(len(items), level)
     body = {ENVELOPES[level]: items}
     return _dispatch(client, f"{level}_write", service, method, body, len(items),
-                     confirm, _preapproved=_preapproved, summary=summary)
+                     confirm, _preapproved=_preapproved, summary=summary,
+                     _approval_digest=_approval_digest)
 
 
 def _dispatch(client, action, service, method, body, count, confirm=None, *,
-              _preapproved=False, summary=""):
+              _preapproved=False, summary="", _approval_digest=None):
     """所有写操作的最后一道关卡：预览给 digest 与确认卡片，执行验 digest。
 
     顺序很重要——先算审批再落审计。审批没过就不该留下"尝试写入"的日志，
@@ -196,7 +205,7 @@ def _dispatch(client, action, service, method, body, count, confirm=None, *,
             exc.approval = approval.describe(alias, steps, summary=summary)
             raise
 
-    digest = None if _preapproved else approval.require(confirm, alias, steps)
+    digest = _approval_digest if _preapproved else approval.require(confirm, alias, steps)
     _record(client, action, service, method, body, count=count, digest=digest)
     try:
         return client.call(service, method, body)

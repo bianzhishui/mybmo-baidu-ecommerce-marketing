@@ -280,3 +280,17 @@ def test_audit_skipped_in_dry_run(bm_home):
 
 def test_audit_file_follows_bm_home(bm_home):
     assert str(write.audit_path()).startswith(str(bm_home))
+
+
+def test_audit_external_records_call_write(bm_home):
+    """call 透传写方法不走 _dispatch，但同样是真实写入，必须留痕。"""
+    client = FakeClient()
+
+    write.audit_external(
+        client, "KeywordService", "addWord", {"keywordTypes": []}, digest="abcd1234abcd1234"
+    )
+
+    rows = write.read_audit()
+    assert len(rows) == 1
+    assert rows[0]["action"] == "call_write"
+    assert rows[0]["approval_digest"] == "abcd1234abcd1234"

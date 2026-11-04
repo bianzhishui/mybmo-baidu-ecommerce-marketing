@@ -202,3 +202,28 @@ def test_call_write_preview_returns_digest(tmp_dir):
     assert result.returncode == 0
     assert len(json.loads(result.stdout)["approval"]["digest"]) == 16
 
+
+def test_transfer_execute_with_dry_run_stays_preview(tmp_dir):
+    """--dry-run 与 --execute 同时给时，dry-run 必须压过 execute。"""
+    seed_account(tmp_dir)
+    plan = {
+        "source": {"alias": "src"},
+        "product_line": "sms",
+        "campaigns": [
+            {"name": "P1", "config": {"campaignName": "P1", "budget": 100}, "adgroups": []}
+        ],
+    }
+    plan_file = tmp_dir / "plan.json"
+    plan_file.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+
+    result = run_cli(
+        ["transfer", "clone", "--plan-file", str(plan_file),
+         "--to-account", "demo", "--execute", "--dry-run"],
+        tmp_dir,
+    )
+
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["dry_run"] is True
+    assert "approval" in data
+

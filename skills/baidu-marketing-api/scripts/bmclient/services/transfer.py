@@ -244,12 +244,16 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True,
             ),
         }
 
-    approval.require(confirm, alias, steps)
-    return _execute(client, plan, stop_on_error=stop_on_error)
+    digest = approval.require(confirm, alias, steps)
+    return _execute(client, plan, stop_on_error=stop_on_error, approval_digest=digest)
 
 
-def _execute(client, plan, *, stop_on_error=True):
-    """串行写入：计划 → 单元 → 关键词 / 创意，逐级注入父级 id。"""
+def _execute(client, plan, *, stop_on_error=True, approval_digest=None):
+    """串行写入：计划 → 单元 → 关键词 / 创意，逐级注入父级 id。
+
+    approval_digest 会带进每一条审计记录——整份方案只在开头审批一次，
+    但每级写入都要能追回到那次审批，否则审计里全是 null。
+    """
     created = {"campaigns": [], "adgroups": [], "keywords": 0, "creatives": 0}
     errors = []
 
@@ -258,6 +262,7 @@ def _execute(client, plan, *, stop_on_error=True):
             data = write_ops.call_raw(
                 client, "campaign", "CampaignService", "addCampaign",
                 [strip_ids(campaign.get("config"))], _preapproved=True,
+                _approval_digest=approval_digest,
             )
             cid = _pick_id(data, "campaignId", f"计划「{campaign['name']}」")
             created["campaigns"].append({"name": campaign["name"], "campaignId": cid})
@@ -267,7 +272,7 @@ def _execute(client, plan, *, stop_on_error=True):
                 gcfg["campaignId"] = cid
                 data = write_ops.call_raw(
                     client, "adgroup", "AdgroupService", "addAdgroup", [gcfg],
-                    _preapproved=True,
+                    _preapproved=True, _approval_digest=approval_digest,
                 )
                 aid = _pick_id(data, "adgroupId", f"单元「{group['name']}」")
                 created["adgroups"].append(
@@ -280,7 +285,7 @@ def _execute(client, plan, *, stop_on_error=True):
                         word["adgroupId"] = aid
                     write_ops.call_raw(
                         client, "keyword", "KeywordService", "addWord", words,
-                        _preapproved=True,
+                        _preapproved=True, _approval_digest=approval_digest,
                     )
                     created["keywords"] += len(words)
 
@@ -290,7 +295,7 @@ def _execute(client, plan, *, stop_on_error=True):
                         creative["adgroupId"] = aid
                     write_ops.call_raw(
                         client, "creative", "CreativeService", "addCreative", creatives,
-                        _preapproved=True,
+                        _preapproved=True, _approval_digest=approval_digest,
                     )
                     created["creatives"] += len(creatives)
 
