@@ -89,13 +89,20 @@ def add_words(client, adgroup_id, words, *, price=None, phrase_type=None, extra=
         if extra:
             item.update(extra)
         items.append(item)
-    return _write(client, "keyword", "KeywordService", "addWord", items, confirm=confirm)
+    summary = f"向单元 {adgroup_id} 添加 {len(items)} 个关键词"
+    if price is not None:
+        summary += f"，出价 {price}"
+    if phrase_type is not None:
+        summary += f"，匹配模式 {phrase_type}"
+    return _write(client, "keyword", "KeywordService", "addWord", items,
+                  confirm=confirm, summary=summary)
 
 
 def update_words(client, items, *, confirm=None):
     """批量修改关键词：出价、匹配模式、启停。items 是完整的 keywordTypes 条目。"""
     items = _require_items(items, "keyword", ("wordId",))
-    return _write(client, "keyword", "KeywordService", "updateWord", items, confirm=confirm)
+    return _write(client, "keyword", "KeywordService", "updateWord", items,
+                  confirm=confirm, summary=f"修改 {len(items)} 个关键词（出价 / 匹配 / 状态）")
 
 
 def delete_words(client, word_ids, *, confirm=None):
@@ -105,6 +112,7 @@ def delete_words(client, word_ids, *, confirm=None):
     return _dispatch(
         client, "keyword_delete", "KeywordService", "deleteWord",
         {"wordIds": ids}, len(ids), confirm,
+        summary=f"删除 {len(ids)} 个关键词",
     )
 
 
@@ -112,14 +120,14 @@ def update_campaigns(client, items, *, confirm=None):
     """批量修改计划：预算、启停、地域等。items 是完整的 campaignTypes 条目。"""
     items = _require_items(items, "campaign", ("campaignId",))
     return _write(client, "campaign", "CampaignService", "updateCampaign", items,
-                  confirm=confirm)
+                  confirm=confirm, summary=f"修改 {len(items)} 个计划（预算 / 状态）")
 
 
 def update_adgroups(client, items, *, confirm=None):
     """批量修改单元：出价、启停等。items 是完整的 adgroupTypes 条目。"""
     items = _require_items(items, "adgroup", ("adgroupId",))
     return _write(client, "adgroup", "AdgroupService", "updateAdgroup", items,
-                  confirm=confirm)
+                  confirm=confirm, summary=f"修改 {len(items)} 个单元（出价 / 状态）")
 
 
 def call_raw(client, level, service, method, items, *, confirm=None, _preapproved=False):
@@ -130,7 +138,8 @@ def call_raw(client, level, service, method, items, *, confirm=None, _preapprove
     """
     items = _require_items(items, level)
     return _write(client, level, service, method, items,
-                  confirm=confirm, _preapproved=_preapproved)
+                  confirm=confirm, _preapproved=_preapproved,
+                  summary=f"透传调用 {service}/{method}")
 
 
 def campaign_item(campaign_id, *, budget=None, status=None):
@@ -162,16 +171,17 @@ def adgroup_item(adgroup_id, *, price=None, status=None):
 # ---------- 内部实现 ----------
 
 
-def _write(client, level, service, method, items, *, confirm=None, _preapproved=False):
+def _write(client, level, service, method, items, *, confirm=None, _preapproved=False,
+           summary=""):
     _guard_count(len(items), level)
     body = {ENVELOPES[level]: items}
     return _dispatch(client, f"{level}_write", service, method, body, len(items),
-                     confirm, _preapproved=_preapproved)
+                     confirm, _preapproved=_preapproved, summary=summary)
 
 
 def _dispatch(client, action, service, method, body, count, confirm=None, *,
-              _preapproved=False):
-    """所有写操作的最后一道关卡：预览给 digest，执行验 digest。
+              _preapproved=False, summary=""):
+    """所有写操作的最后一道关卡：预览给 digest 与确认卡片，执行验 digest。
 
     顺序很重要——先算审批再落审计。审批没过就不该留下"尝试写入"的日志，
     否则审计里会混进一堆根本没发出去的记录。
@@ -183,7 +193,7 @@ def _dispatch(client, action, service, method, body, count, confirm=None, *,
         try:
             return client.call(service, method, body)
         except DryRunRequested as exc:
-            exc.approval = approval.describe(alias, steps)
+            exc.approval = approval.describe(alias, steps, summary=summary)
             raise
 
     digest = None if _preapproved else approval.require(confirm, alias, steps)

@@ -798,7 +798,9 @@ def _run_call(args):
             try:
                 client.call(args.service, args.method, body, product_line=args.line)
             except DryRunRequested as exc:
-                exc.approval = approval.describe(alias, steps)
+                exc.approval = approval.describe(
+                    alias, steps, summary=f"透传调用 {args.service}/{args.method}"
+                )
                 raise
         approval.require(getattr(args, "confirm", None), alias, steps)
 

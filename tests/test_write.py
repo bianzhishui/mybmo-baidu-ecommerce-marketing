@@ -146,6 +146,42 @@ def test_preview_carries_digest(bm_home):
     assert rendered["dry_run"] is True
 
 
+def test_all_write_paths_carry_confirm_card(bm_home):
+    """每一条写路径的预览都必须自带卡片——不给自己临场组织语言的机会。"""
+    cases = {
+        "add_words": lambda c: write.add_words(c, 9, "月季", price=2.0),
+        "update_words": lambda c: write.update_words(c, [{"wordId": 1, "price": 2.0}]),
+        "delete_words": lambda c: write.delete_words(c, "11,22"),
+        "update_campaigns": lambda c: write.update_campaigns(
+            c, [{"campaignId": 1, "budget": 300}]
+        ),
+        "update_adgroups": lambda c: write.update_adgroups(c, [{"adgroupId": 9, "price": 2.0}]),
+        "call_raw": lambda c: write.call_raw(
+            c, "keyword", "KeywordService", "addWord", [{"adgroupId": 9, "word": "月季"}]
+        ),
+    }
+
+    for name, fn in cases.items():
+        info, _ = preview(fn)
+        card = info["confirm_card"]
+
+        assert card["type"] == "confirm", name
+        labels = [f["label"] for f in card["fields"]]
+        assert labels == ["账户", "动作", "条数", "回执"], name
+        assert [o["value"] for o in card["options"]] == ["confirm", "cancel"], name
+        assert info["digest"] in card["on_confirm"], name
+        assert "不可撤销" in card["warning"], name
+
+
+def test_confirm_card_summary_mentions_key_fields(bm_home):
+    info, _ = preview(write.add_words, 10086, "月季,玫瑰花", price=3.5, phrase_type=2)
+
+    action = [f["value"] for f in info["confirm_card"]["fields"] if f["label"] == "动作"][0]
+    assert "10086" in action
+    assert "2 个关键词" in action
+    assert "3.5" in action and "2" in action
+
+
 def test_execute_without_confirm_is_refused(bm_home):
     client = FakeClient()
 

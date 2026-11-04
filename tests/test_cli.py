@@ -112,6 +112,20 @@ def test_write_preview_returns_digest(tmp_dir):
     assert "keywordTypes" in data["payload"]["body"]
 
 
+def test_write_preview_embeds_confirm_card(tmp_dir):
+    seed_account(tmp_dir)
+
+    result = run_cli(
+        ["write", "word-add", "--adgroup-id", "9", "--words", "月季", "--price", "2"],
+        tmp_dir,
+    )
+
+    card = json.loads(result.stdout)["approval"]["confirm_card"]
+    assert card["type"] == "confirm"
+    assert [f["label"] for f in card["fields"]] == ["账户", "动作", "条数", "回执"]
+    assert [o["label"] for o in card["options"]] == ["确认执行", "取消"]
+
+
 def test_write_execute_without_confirm_exits_4(tmp_dir):
     seed_account(tmp_dir)
 

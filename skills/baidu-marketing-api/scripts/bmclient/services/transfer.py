@@ -223,18 +223,24 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True,
     _require_writable_line(product_line)
     steps = build_steps(plan, product_line=product_line)
     alias = getattr(client.cred, "alias", "")
+    stats = summarize_plan(plan)
 
     if dry_run:
+        summary = (
+            f"在账户 {alias or '默认账户'} 重建 {stats['campaigns']} 个计划 / "
+            f"{stats['adgroups']} 个单元 / {stats['keywords']} 个关键词 / "
+            f"{stats['creatives']} 个创意"
+        )
         return {
             "dry_run": True,
             "target": {"alias": client.cred.alias, "user_name": client.cred.user_name},
             "product_line": product_line,
-            "stats": summarize_plan(plan),
+            "stats": stats,
             "steps": steps,
-            "approval": approval.describe(alias, steps),
+            "approval": approval.describe(alias, steps, summary=summary),
             "notice": (
-                "以上为待执行报文，未发送。交给用户核对价格、地域、落地页与否定词，"
-                "确认后用上面的 digest 加 --execute --confirm <digest> 执行。"
+                "以上为待执行报文，未发送。把 approval.confirm_card 弹给用户点选，"
+                "点「确认执行」后再带 --execute --confirm <digest> 执行。"
             ),
         }
 

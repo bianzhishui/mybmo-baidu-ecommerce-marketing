@@ -98,6 +98,17 @@ def test_preview_carries_digest():
     assert client.calls == [], "预览不该发请求"
 
 
+def test_preview_carries_confirm_card():
+    result = transfer.apply(FakeClient(), PLAN, dry_run=True)
+
+    card = result["approval"]["confirm_card"]
+    assert card["type"] == "confirm"
+    action = [f["value"] for f in card["fields"] if f["label"] == "动作"][0]
+    assert "1 个计划" in action
+    assert "2 个关键词" in action
+    assert [o["value"] for o in card["options"]] == ["confirm", "cancel"]
+
+
 def test_execute_without_confirm_is_refused():
     client = FakeClient(responses=CREATED)
 

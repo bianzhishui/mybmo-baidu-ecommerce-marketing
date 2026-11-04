@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.7.2-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.7.3-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.7.2` |
+| 版本 | `1.7.3` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | Python 3 标准库，**零第三方依赖** |
@@ -127,8 +127,9 @@ python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
 digest 是报文内容的指纹：没预览就拿不到，预览后改了参数（哪怕只改一个出价）也会失效。
 执行被拒时**不会**回显正确 digest，避免被直接抄走绕过审批。
 
-确认环节要求用**可点击的确认卡片**（账户、动作、条数、关键字段、不可逆提示同屏），
-而不是靠正文里一句"可以吗"——用户很容易没看清数字就回一句「可以」。
+确认环节由**预览输出自带的卡片内容**驱动：`approval.confirm_card` 里有标题、字段
+（账户 / 动作 / 条数 / 回执）、选项（确认执行 / 取消）与不可逆提示，原样弹出即可。
+三条写路径——`write` 全部子命令、`transfer clone`、`call` 写类方法——都会带这张卡片。
 
 透传时方法名支持小写蛇形，脚本自动转驼峰：
 
@@ -246,7 +247,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 93 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 97 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```

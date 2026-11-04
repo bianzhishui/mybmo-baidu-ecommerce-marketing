@@ -40,16 +40,38 @@ def compute(alias, steps):
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:DIGEST_LEN]
 
 
-def describe(alias, steps, *, command_hint=""):
-    """预览时返回给用户看的审批信息。"""
+def describe(alias, steps, *, summary="", warning="", title="确认执行这次写入？"):
+    """预览时返回给用户看的审批信息。
+
+    除了 digest，还直接给出一份 `confirm_card`：标题、字段、选项都是现成的。
+    这样「弹卡片」不再是需要临场发挥的环节——预览输出里有什么，就原样弹什么。
+    少一次自行组织语言，就少一次漏掉关键数字的机会。
+    """
     digest = compute(alias, steps)
+    card = {
+        "type": "confirm",
+        "title": title,
+        "fields": [
+            {"label": "账户", "value": alias or "默认账户"},
+            {"label": "动作", "value": summary or _service_label(steps)},
+            {"label": "条数", "value": _count_items(steps)},
+            {"label": "回执", "value": digest},
+        ],
+        "options": [
+            {"label": "确认执行", "value": "confirm"},
+            {"label": "取消", "value": "cancel"},
+        ],
+        "warning": warning or "写入后不可撤销，只能人工回滚。",
+        "on_confirm": f"--execute --confirm {digest}",
+    }
     return {
         "digest": digest,
         "target": alias or "默认账户",
         "items": _count_items(steps),
+        "confirm_card": card,
         "next": (
-            f"确认报文无误、且用户明确同意后，重跑同一命令并加 --execute --confirm {digest}。"
-            + (f"（{command_hint}）" if command_hint else "")
+            f"必须先把 confirm_card 弹给用户点选；用户点「确认执行」后，"
+            f"再加 --execute --confirm {digest} 执行。"
         ),
         "notice": "未带 --confirm 的执行会被拒绝：写操作必须先给用户看过报文。",
     }
@@ -85,6 +107,13 @@ def _count_items(steps):
             if isinstance(value, list):
                 total += len(value)
     return total
+
+
+def _service_label(steps):
+    if not steps:
+        return "写入"
+    step = steps[0]
+    return f"{step.get('service', '')}/{step.get('method', '')}".strip("/")
 
 
 # 百度 SMS 的方法命名：get/query 之类是读，其余动词基本都是写。
