@@ -177,3 +177,42 @@ def test_no_absolute_dependency_claims():
                     offenders.append(f"{path.relative_to(ROOT)}:{lineno} 含「{phrase}」")
 
     assert offenders == [], "\n".join(offenders)
+
+
+# ---------- SKILL.md frontmatter（平台上传必填项） ----------
+
+
+def _skill_frontmatter():
+    text = (ROOT / "skills" / "baidu-marketing-api" / "SKILL.md").read_text(encoding="utf-8")
+    return text.split("---", 2)[1]
+
+
+def _block_value(frontmatter, key):
+    """取 `key: |` 的多行块内容（2 空格缩进），没有则返回 None。"""
+    lines = frontmatter.splitlines()
+    try:
+        start = lines.index(f"{key}: |")
+    except ValueError:
+        return None
+    block = []
+    for line in lines[start + 1:]:
+        if line.startswith("  "):
+            block.append(line[2:])
+        elif line.strip():
+            break
+    return "\n".join(block).strip()
+
+
+def test_skill_frontmatter_has_platform_required_fields():
+    """开放平台上传校验要求这四个字段，缺一个就报「解析失败」。"""
+    fm = _skill_frontmatter()
+
+    for key in ("display_name", "display_name_zh", "display_name_en", "description_zh"):
+        assert re.search(rf"^{key}:\s*\S", fm, re.MULTILINE), f"frontmatter 缺少 {key}"
+
+
+def test_skill_description_zh_matches_description():
+    """两个中文字段是同一份文案——分叉了就等于两份真相。"""
+    fm = _skill_frontmatter()
+
+    assert _block_value(fm, "description_zh") == _block_value(fm, "description")
