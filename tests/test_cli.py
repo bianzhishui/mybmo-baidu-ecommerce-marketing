@@ -23,6 +23,8 @@ def run_cli(args, home, **extra_env):
         [sys.executable, str(BMCTL), *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
         timeout=60,
     )

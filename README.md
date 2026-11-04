@@ -6,8 +6,8 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.7.6-2ea043?style=flat-square">
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.x-3776ab?style=flat-square&logo=python&logoColor=white">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.8.0-2ea043?style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
 
@@ -22,10 +22,10 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.7.6` |
+| 版本 | `1.8.0` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
-| 运行时 | Python 3 标准库，**零第三方依赖** |
+| 运行时 | Python 3.9+，纯标准库**零第三方依赖**；macOS / Linux / Windows |
 
 装进 WorkBuddy 后，在专家中心选中 **MyBMO** 即可对话；它会在需要取数时自动调用内置技能，不需要你手动敲命令。
 
@@ -51,6 +51,25 @@
 - **写操作落地**：加词、改出价与匹配模式、启停计划/单元、调预算。**默认 dry-run**，加 `--execute` 才真正写入，每次写入都落审计。
 - **合规提示**：类目资质、落地页与商品库同步风险、小预算测试前置建议。
 
+## 环境要求
+
+| 项 | 要求 |
+|---|---|
+| Python | **3.9 及以上**。低于门槛时 `bmctl.py` 会在启动阶段给出中文提示并以**退出码 6** 结束，不会抛裸 Traceback |
+| 依赖 | **无**。纯标准库实现，不需要 `pip install`，也不联网下载任何包 |
+| 平台 | macOS / Linux / Windows。三者的解释器命令不同，见下 |
+
+解释器怎么调：
+
+| 平台 | 命令 | 说明 |
+|---|---|---|
+| macOS / Linux | `python3` | 系统自带或 Homebrew 安装 |
+| Windows | `py -3` | python.org 安装包只生成 `python.exe` 与 `py.exe`，**没有 `python3.exe`**；`py -3` 是官方启动器 |
+
+> 机器上没装 Python、或版本过低，脚本会直接告诉你缺什么，而不是抛一堆栈。
+> 机器可读的门槛写在 [`skills/baidu-marketing-api/runtime.json`](skills/baidu-marketing-api/runtime.json)，
+> 随包分发，入口代码启动时会读它做校验。
+
 ## 安装
 
 把仓库放到 WorkBuddy 的专家市场目录（`my-experts` 是本地市场，往里放东西即视为发布）：
@@ -73,10 +92,12 @@ git clone https://github.com/bianzhishui/mybmo-baidu-ecommerce-marketing.git "$T
 
 ## 快速开始
 
+下面的 `python3` 在 Windows 上要换成 `py -3`（原因见「环境要求」）。路径含空格时记得加引号。
+
 ```bash
 cd ~/.workbuddy/plugins/marketplaces/my-experts/plugins/mybmo-baidu-ecommerce-marketing/skills/baidu-marketing-api
 
-# 1. 自检：有没有已授权账户
+# 1. 自检：解释器版本与已授权账户
 python3 scripts/bmctl.py accounts list
 
 # 2. 拓词
@@ -84,6 +105,12 @@ python3 scripts/bmctl.py kr expand --seed "月季" --limit 20 --format md
 
 # 3. 多账户时指定账户
 python3 scripts/bmctl.py --account axd kr expand --seed "猫粮"
+```
+
+Windows 的等价写法：
+
+```bat
+py -3 scripts\bmctl.py accounts list
 ```
 
 ## 命令清单
@@ -167,7 +194,8 @@ python3 scripts/bmctl.py call --service krService --method get_kr_by_query \
 ## 多账户
 
 一个 **alias = 一个推广账户 = 一份独立凭据**，令牌互不通用，存放在
-`~/.workbuddy/baidu-marketing/accounts/<alias>.json`（权限 600），**不随插件分发**，每台机器需单独授权一次。
+`~/.workbuddy/baidu-marketing/accounts/<alias>.json`（macOS/Linux 下权限 600；Windows 无 POSIX
+权限位，依赖 `%USERPROFILE%` 的用户目录 ACL，默认仅本人可读），**不随插件分发**，每台机器需单独授权一次。
 
 三个必须知道的细节：
 
@@ -214,6 +242,7 @@ mybmo-baidu-ecommerce-marketing/
 ├── agents/MyBMO.md                 # 专家人设：能力、数据工具、SOP、边界
 ├── skills/baidu-marketing-api/
 │   ├── SKILL.md                    # 能力入口：自检、命令、字段、边界
+│   ├── runtime.json                # 运行时契约：Python 门槛、三平台解释器、零依赖
 │   ├── references/
 │   │   ├── keyword-sop.md          # 图片转投流关键词的 SOP（Agent 用）
 │   │   ├── auth-sop.md             # 鉴权的交互 SOP（Agent 用）
@@ -247,7 +276,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 104 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 123 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
@@ -291,7 +320,7 @@ rsync -a --delete \
 
 ```bash
 ./tools/build-zip.sh
-# → dist/mybmo-baidu-ecommerce-marketing.zip   （22 个文件，约 500 KB）
+# → dist/mybmo-baidu-ecommerce-marketing.zip（文件数与体积以脚本输出为准）
 ```
 
 脚本走的是 WorkBuddy 官方 `expert-manager` 的四步流程：

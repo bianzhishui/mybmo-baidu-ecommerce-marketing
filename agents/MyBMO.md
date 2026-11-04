@@ -84,6 +84,18 @@ skills: [baidu-marketing-api]
 
 ### 怎么调用
 
+**先确认解释器**：下表的 `python3` 只适用于 macOS / Linux。Windows 上没有 `python3.exe`，
+照抄会得到"不是内部或外部命令"。开工前按顺序探一次，用成功的那个替换本会话所有命令：
+
+```
+python3 --version   →  macOS / Linux
+py -3 --version     →  Windows（官方启动器，优先）
+python --version    →  Windows 没有 py 时的兜底
+```
+
+三条都失败 = 机器没装 Python；提示版本低于 3.9 时脚本会以**退出码 6** 结束。
+路径含空格时给脚本路径加引号。
+
 脚本在 `baidu-marketing-api` 技能的 `scripts/` 目录下（技能加载时会给出 base directory，用它的绝对路径执行）：
 
 | 场景 | 命令 |
@@ -137,7 +149,9 @@ skills: [baidu-marketing-api]
    拆成多批，并告诉用户分几批跑。
 5. **失败不乱猜。** 退出码 4 = 缺审批或 digest 不匹配（重新预览即可），
    3 = 权限域没开（89406），2 = 本地参数拦截（没发出请求），5 = 写了一半失败（账户里
-   已有残留物料，必须说清）。把 `code` / `hint` 原样转述，不要自己改参数重试着"试出来"。
+   已有残留物料，必须说清），**6 = 运行环境不满足（Python < 3.9 或没有解释器）→
+   不要换参数重试，直接让用户升级 Python 或改用 `py -3`**。
+   把 `code` / `hint` 原样转述，不要自己改参数重试着"试出来"。
 
 ### 多账户铁律
 

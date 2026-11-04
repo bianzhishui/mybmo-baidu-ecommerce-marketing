@@ -9,6 +9,7 @@ services 层只传 service + method + body，拿回 body.data。
 from __future__ import annotations
 
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -80,19 +81,24 @@ class BaiduClient:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     raw = resp.read().decode("utf-8")
                 return self._parse(raw, service, method)
-            except (urllib.error.URLError, TimeoutError) as exc:
+            except urllib.error.HTTPError as exc:
+                # HTTPError 是 URLError 的子类，必须排在 URLError 前面。
+                # 顺序反了会让 4xx/5xx 被当成网络故障白白重试三次，
+                # 下面那个分支也就永远走不到。
+                raise BaiduApiError(
+                    f"{service}/{method} HTTP {exc.code}",
+                    service=service,
+                    method=method,
+                ) from exc
+            except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+                # socket.timeout 在 3.10 才等于 TimeoutError，3.9 上它是 OSError 子类，
+                # 不显式列出来，超时会被上层误判成"文件读写失败"。
                 last_error = exc
                 if attempt < MAX_RETRY:
                     time.sleep(2 ** attempt)
                     continue
                 raise BaiduApiError(
                     f"{service}/{method} 网络失败：{exc}", service=service, method=method
-                ) from exc
-            except urllib.error.HTTPError as exc:
-                raise BaiduApiError(
-                    f"{service}/{method} HTTP {exc.code}",
-                    service=service,
-                    method=method,
                 ) from exc
         raise BaiduApiError(str(last_error), service=service, method=method)
 

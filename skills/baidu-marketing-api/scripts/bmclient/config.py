@@ -24,6 +24,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .errors import CredentialError
+
 DEFAULT_HOME = Path.home() / ".workbuddy" / "baidu-marketing"
 ACCOUNTS_DIRNAME = "accounts"
 DEFAULT_ALIAS_FILE = "default"
@@ -92,11 +94,26 @@ class Credential:
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".json.tmp")
         tmp.write_text(_dumps(asdict(self)), encoding="utf-8")
-        os.replace(tmp, target)  # 原子写，避免半截文件
         try:
-            target.chmod(0o600)
-        except OSError:
-            pass
+            os.replace(tmp, target)  # 原子写，避免半截文件
+        except PermissionError as exc:
+            # Windows 上目标文件被其他程序/杀软占用时 replace 会失败。
+            # 必须清掉临时文件，否则下次写入会撞上一个过期的 .json.tmp。
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise CredentialError(
+                f"凭据写入失败：{target} 被占用或没有写权限。"
+                "关闭占用该文件的程序后重试。"
+            ) from exc
+        if os.name != "nt":
+            # Windows 没有 POSIX 权限位，chmod 只能改只读标记，设 600 是无效的；
+            # 那边的保护来自 %USERPROFILE% 的用户目录 ACL，不是这里。
+            try:
+                target.chmod(0o600)
+            except OSError:
+                pass
         return target
 
 

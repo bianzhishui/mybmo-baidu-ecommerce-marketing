@@ -8,7 +8,7 @@
 ```
 ~/.workbuddy/baidu-marketing/
 ├── accounts/
-│   ├── wds02.json       # alias=wds02 的完整凭据（权限 600）
+│   ├── wds02.json       # alias=wds02 的完整凭据（Unix 权限 600）
 │   └── axd.json
 └── default              # 纯文本，记录默认 alias
 ```
@@ -106,7 +106,7 @@ python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者ui
 
 `--max N` 接满即退；`--once` 等价 `--max 1`；不传 `--user-name` 时自动调 `getUserInfo` 取账户中文名。
 
-**安全边界**：只监听 `127.0.0.1`（公网靠隧道），强制校验 state 的 base 部分，**不验签**
+**安全边界**：默认只监听 `127.0.0.1`（公网靠隧道；容器场景可 `--host 0.0.0.0`，会告警），强制校验 state 的 base 部分，**不验签**
 （AES 需第三方库，会破坏零依赖）。风险可控：换令牌还要服务端持有的 secretKey，
 且 authCode 一次性，伪造回调换不出令牌。
 
@@ -128,7 +128,7 @@ python3 scripts/bmctl.py auth exchange --code <authCode> \
 
 ### 4.4 直接写凭据文件
 
-手上已有令牌时，直接构造 `accounts/<alias>.json`（权限 600）：
+手上已有令牌时，直接构造 `accounts/<alias>.json`（macOS/Linux 下记得 `chmod 600`；Windows 无 POSIX 权限位，靠用户目录 ACL）：
 
 ```json
 {
@@ -154,7 +154,7 @@ python3 scripts/bmctl.py auth exchange --code <authCode> \
 账户分属不同 AppID / 开发者uid / SecretKey 时，用清单一次加载，不要起多个服务：
 
 ```json
-// ~/.workbuddy/baidu-marketing/apps.json   权限 600（含密钥）
+// ~/.workbuddy/baidu-marketing/apps.json   Unix 权限 600（含密钥）
 {
   "apps": [
     {"label": "主应用", "app_id": "<AppID-A>", "developer_uid": "<uid-A>", "secret_key": "<Key-A>"},

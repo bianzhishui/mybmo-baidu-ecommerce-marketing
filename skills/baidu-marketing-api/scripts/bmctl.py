@@ -19,12 +19,75 @@
     python3 bmctl.py call --service CampaignService --method getCampaign --body '{}'
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import sys
 from pathlib import Path
+
+# ---------------------------------------------------------------- 解释器门槛
+#
+# 本文件**刻意不写** `from __future__ import annotations`：
+# 那是 3.7 才有的 future 特性，在 3.6 上属编译期 SyntaxError，文件一个字节都不会执行，
+# 守卫就永远兜不住。本文件没有任何类型注解，去掉它对运行期毫无影响。
+# 新增代码不要再加回来，否则低版本又会变成裸 Traceback。
+
+MIN_PYTHON = (3, 9)
+
+
+def _declared_min_python():
+    """优先读 runtime.json 的门槛，读不到就用常量。两者一致性由测试锁死。"""
+    try:
+        raw = (Path(__file__).resolve().parents[1] / "runtime.json").read_text(
+            encoding="utf-8"
+        )
+        value = json.loads(raw)["runtime"]["python_min"]
+        return (int(value[0]), int(value[1]))
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return MIN_PYTHON
+
+
+def _write_line(stream, text):
+    """写一行；编码不支持时退回纯 ASCII 提示，别让提示本身再抛异常。"""
+    try:
+        stream.write(text + "\n")
+        stream.flush()
+    except UnicodeEncodeError:
+        ascii_text = text.encode("ascii", "replace").decode("ascii")
+        stream.write(ascii_text + "\n")
+        stream.flush()
+
+
+def _check_python(version_info=None, *, out=None, err=None):
+    """版本不足时给出可读提示并返回退出码 6；满足则返回 0。"""
+    current = tuple(version_info or sys.version_info)[:2]
+    required = _declared_min_python()
+    if current >= required:
+        return 0
+
+    required_text = ".".join(str(p) for p in required) + "+"
+    current_text = ".".join(str(p) for p in current)
+    payload = {
+        "error": "运行环境不满足",
+        "code": "PYTHON_VERSION",
+        "required": required_text,
+        "current": current_text,
+        "executable": sys.executable,
+        "platform": sys.platform,
+        "hint": "升级 Python 后重试。本工具只用标准库，不需要 pip install；"
+                "Windows 上通常用 py -3 调起解释器。",
+    }
+    # ensure_ascii=True：无论控制台是 cp936 还是被重定向到文件，都不会二次编码失败
+    _write_line(out or sys.stdout, json.dumps(payload, ensure_ascii=True))
+    _write_line(
+        err or sys.stderr,
+        f"[环境] 需要 Python {required_text}，当前是 {current_text}（{sys.executable}）。",
+    )
+    return 6
+
+
+_min_python_status = _check_python()
+if _min_python_status:
+    raise SystemExit(_min_python_status)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -255,7 +318,24 @@ def _make_client(args):
     return _make_client_from(getattr(args, "account", None), args)
 
 
+def _configure_stdio():
+    """把标准输出统一成 UTF-8。
+
+    Windows 控制台默认 cp936，中文之外的符号（例如 emoji、箭头）会抛
+    UnicodeEncodeError。errors="replace" 让它降级成问号而不是崩掉。
+
+    pytest 的 capsys、被父进程替换的流可能没有 reconfigure，所以整段容错——
+    这里失败不该影响任何业务。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            continue
+
+
 def main(argv=None):
+    _configure_stdio()
     args = build_parser().parse_args(argv)
 
     try:
@@ -305,6 +385,19 @@ def main(argv=None):
         return 2
     except FileNotFoundError as exc:
         render.emit({"error": "账户不存在", "message": str(exc)})
+        return 2
+    except OSError as exc:
+        # Windows 上文件被占用/无权限是高频路径（凭据写入、审计落盘、--out 导出）。
+        # FileNotFoundError 是 OSError 子类，必须排在它前面。
+        # 注意：网络超时不能落进这里——transport 已把 socket.timeout 收进 BaiduApiError。
+        render.emit(
+            {
+                "error": "本地文件读写失败",
+                "message": str(exc),
+                "hint": "常见原因是文件被其他程序占用或目录无写权限；关闭占用程序后重试。",
+            },
+            args.format,
+        )
         return 2
     except BaiduApiError as exc:
         render.emit(exc.to_dict(), args.format)
@@ -484,6 +577,14 @@ def _run_auth_serve(args):
         f"[serve] 监听 {local}（{limit_text}，最长 {args.wait} 秒）",
         file=sys.stderr, flush=True,
     )
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        # 默认只绑回环；容器/反代确实需要对外监听，那是用户的显式选择，
+        # 但必须留一条痕迹，避免"以为只在本机"。
+        print(
+            f"[serve] [警告] 已绑定非回环地址 {args.host}，授权回调可被同网络访问。"
+            "仅在容器/反向代理场景使用，用完请关闭。",
+            file=sys.stderr, flush=True,
+        )
     print(f"[serve] 已加载 {len(apps)} 个应用：", file=sys.stderr, flush=True)
     for a in apps:
         can = "可自动换令牌" if (a["app_id"] and a["secret_key"]) else "缺 app_id/secret_key，只收码"
@@ -552,7 +653,7 @@ def _run_auth_serve(args):
         if not user_id:
             record.ok = False
             record.detail = "回调未带 userId，无法换令牌"
-            print(f"[serve] ✗ {record.detail}", file=sys.stderr, flush=True)
+            print(f"[serve] [失败] {record.detail}", file=sys.stderr, flush=True)
             return
 
         existing = config.read_account(alias)
@@ -571,7 +672,7 @@ def _run_auth_serve(args):
         except Exception as exc:  # 单个账户失败不拖垮整个服务
             record.ok = False
             record.detail = f"换令牌失败：{exc}"
-            print(f"[serve] ✗ {record.detail}", file=sys.stderr, flush=True)
+            print(f"[serve] [失败] {record.detail}", file=sys.stderr, flush=True)
             return
 
         if not args.user_name:
@@ -586,7 +687,7 @@ def _run_auth_serve(args):
 
         record.ok = True
         record.detail = f"已保存为账户 {cred.alias}（{cred.user_name or '未取到中文名'}）"
-        print(f"[serve] ✓ {record.detail}", file=sys.stderr, flush=True)
+        print(f"[serve] [成功] {record.detail}", file=sys.stderr, flush=True)
 
     try:
         records, rejected = oauthserver.serve(

@@ -20,16 +20,26 @@ python3 scripts/bmctl.py accounts list
 
 ## 一、环境检查
 
-只要求 Python 3.8 及以上，**没有任何第三方依赖**（纯标准库实现）。
+只要求 **Python 3.9 及以上**，**没有任何第三方依赖**（纯标准库实现），也不需要 `pip install`。
+
+先确认解释器：
 
 ```bash
+# macOS / Linux
 python3 --version
+
+# Windows（注意：python.org 的安装包只生成 python.exe 和 py.exe，没有 python3.exe）
+py -3 --version
 ```
 
-- macOS / Linux：系统自带，通常已满足
-- Windows：到 python.org 装 3.9+，安装时勾选 "Add Python to PATH"
+- macOS / Linux：系统自带或 Homebrew 安装，通常已满足
+- Windows：到 python.org 装 3.9+，安装时勾选 "Add Python to PATH"。
+  装完用 `py -3` 调起；直接敲 `python3` 会报"不是内部或外部命令"
+- 版本低于 3.9：`bmctl.py` 会直接给出中文提示并**以退出码 6 结束**，
+  不会抛出看不懂的栈。看到退出码 6 就是版本问题，不用往鉴权方向查
 
-Windows 上如果输出中文变成乱码，是控制台编码问题，执行一次：
+Windows 上如果输出中文变成乱码，现在的脚本会把标准输出统一设成 UTF-8；
+若终端仍显示乱码，执行一次：
 
 ```bash
 chcp 65001
@@ -143,7 +153,7 @@ python3 scripts/bmctl.py auth exchange \
 `--alias` 是以后 `--account` 用的名字，用小写字母/数字/下划线（如 `wds02`、`axd_pet`）。
 `--user-name` 填账户中文名（如 `baidu-XX电商-XX店`），**不是 userId，也不是登录名**。
 
-成功后凭据落在 `~/.workbuddy/baidu-marketing/accounts/<alias>.json`，权限 600。
+成功后凭据落在 `~/.workbuddy/baidu-marketing/accounts/<alias>.json`（macOS/Linux 权限 600；Windows 无 POSIX 权限位，靠用户目录 ACL，默认仅本人可读）。
 
 ## 四、验证
 

@@ -146,7 +146,7 @@ python3 <skill>/scripts/bmctl.py auth link --app-id <AppID> \
 
 > 有这个 accessToken 就能直接调，但它在 24 小时后失效。你如果还有 refreshToken，一起给我就能长期用；没有的话明天要重新弄一次。
 
-2. 写凭据文件（权限必须 600）：
+2. 写凭据文件（macOS/Linux 下权限必须 600；Windows 无 POSIX 权限位，跳过 chmod 即可）：
 
 ```bash
 # 路径：~/.workbuddy/baidu-marketing/accounts/<alias>.json
@@ -188,7 +188,7 @@ python3 <skill>/scripts/bmctl.py --account <别名> kr expand --seed "测试" --
 | `Address already in use` | 端口占用 | 换 `--port 8081` |
 | `state 不属于任何已配置应用` | 用了旧链接或 base 对不上 | 重新生成链接，别复用旧的 |
 
-**E1（Python 环境问题）**：报 `command not found` 或模块导入失败 → 是环境问题，不是权限问题。先确认 `python3 --version` ≥ 3.8，别往鉴权方向排查。
+**E1（Python 环境问题）**：报 `command not found` 或模块导入失败 → 是环境问题，不是权限问题。先确认 `python3 --version`（Windows 用 `py -3 --version`）**≥ 3.9**，别往鉴权方向排查。版本不足时脚本会以退出码 6 结束。
 
 ---
 

@@ -27,9 +27,27 @@ description_en: |
 把「凭经验估」换成「用真实数据算」。所有关键词结论都应基于关键词规划师返回的
 搜索量、竞争度、推荐出价，而不是凭空给数字。
 
-底层是纯标准库实现的 Python 客户端，零第三方依赖。
+底层是纯标准库实现的 Python 客户端，零第三方依赖，要求 **Python 3.9+**，
+macOS / Linux / Windows 三平台通用。
 
 ## 零、首次自检
+
+### 先确定用哪个解释器
+
+命令里的 `python3` 只对 macOS / Linux 有效。**Windows 上没有 `python3.exe`**，
+照抄会得到"不是内部或外部命令"。开工前先探一次，把本会话要用的写法定下来：
+
+| 顺序 | 命令 | 适用 |
+|---|---|---|
+| 1 | `python3 --version` | macOS / Linux |
+| 2 | `py -3 --version` | Windows（官方启动器，优先用这个） |
+| 3 | `python --version` | Windows 没有 `py` 时的兜底 |
+
+哪条成功就用哪条，**本会话后续所有 `scripts/bmctl.py` 调用统一替换**。
+三条都失败 = 机器上没有 Python；版本低于 3.9 时脚本会直接给出中文提示并**退出码 6**。
+路径含空格时给脚本路径加引号。
+
+### 再检查账户
 
 涉及取数时，先跑这一条：
 
@@ -39,9 +57,11 @@ python3 scripts/bmctl.py accounts list
 
 - 有账户且 `usable: true` → 直接干活，用户不关心鉴权
 - 提示"还没有任何已授权账户" → **不要反复重试业务命令**，按 `references/auth-sop.md` 引导
+- 退出码 6 或提示 Python 版本不满足 → 环境问题，按上面的表换解释器 / 让用户升级 Python，
+  **不要换参数重试**
 - 报 Python 错误 → 环境问题，不是权限问题
 
-凭据不随专家包分发，每台机器需单独授权一次。
+凭据不随专家包分发，每台机器需单独授权一次。机器可读的运行时契约见 `runtime.json`。
 
 ## 一、多账户与授权
 
@@ -67,9 +87,11 @@ python3 scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者ui
 ```
 
 别名编进 `state`（格式 `{base}.{alias}`），服务据此决定令牌存到哪个账户。
-服务只监听 `127.0.0.1`，公网靠隧道转发；不做 AES 验签，改为校验 state 的 base 部分。
+服务默认只监听 `127.0.0.1`，公网靠隧道转发；容器/反代场景可显式 `--host 0.0.0.0`，
+此时 CLI 会打印警告。不做 AES 验签，改为校验 state 的 base 部分。
 
-凭据落在 `~/.workbuddy/baidu-marketing/accounts/<alias>.json`（权限 600）。
+凭据落在 `~/.workbuddy/baidu-marketing/accounts/<alias>.json`
+（macOS/Linux 权限 600；Windows 无 POSIX 权限位，靠用户目录 ACL，默认仅本人可读）。
 `BM_ACCOUNT` 可临时指定账户，`BAIDU_*` 环境变量优先级最高。
 
 ### 三个必须知道的细节
@@ -249,11 +271,12 @@ python3 scripts/bmctl.py write word-add --adgroup-id 10086 \
 
 ## 八、错误速查
 
-| code | 原因 | 处理 |
+| code / 退出码 | 原因 | 处理 |
 |---|---|---|
-| 8002 | 鉴权放错位置 | 必须放请求体 JSON 的 header，不是 HTTP 头（脚本已处理） |
-| 81020 | userName 与令牌不属同一账户 | 用 `--account` 指定，别手工混用凭据 |
-| 89406 | 权限域未开通 | 见「七、能力边界」，不是令牌问题 |
+| `8002` | 鉴权放错位置 | 必须放请求体 JSON 的 header，不是 HTTP 头（脚本已处理） |
+| `81020` | userName 与令牌不属同一账户 | 用 `--account` 指定，别手工混用凭据 |
+| `89406` | 权限域未开通 | 见「七、能力边界」，不是令牌问题 |
+| 退出码 `6` | 解释器版本低于 3.9 | 换 `py -3` / 升级 Python。**不是权限问题，换参数重试没用** |
 
 错误统一以 JSON 返回，含 `code` / `position` / `hint`，退出码非 0。
 完整错误码表见 `references/auth.md`。

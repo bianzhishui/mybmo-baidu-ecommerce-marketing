@@ -8,7 +8,8 @@
 百度会把 state 原样带回，所以 alias 不需要额外通道传。
 
 安全边界（重要）：
-  - 只监听 127.0.0.1，绝不绑 0.0.0.0。公网暴露交给隧道（cloudflared / frp）。
+  - 默认只监听 127.0.0.1。容器/反向代理场景下用户可显式 `--host 0.0.0.0`，
+    此时 CLI 会打印警告；公网暴露仍建议交给隧道（cloudflared / frp）。
   - **不做 AES 验签**：验签需要第三方 AES 实现，会破坏零依赖特性。
   - 改为强制校验 state 的 base 部分 —— 伪造者即便打通回调，也换不出令牌：
     换令牌还要服务端持有的 secretKey，且 authCode 是一次性的。
@@ -35,7 +36,10 @@ _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 def default_state(app_id, developer_uid):
     """百度约定的默认 state：md5(appId_开发者uid) 32 位小写。"""
     raw = f"{app_id}_{developer_uid}".encode()
-    return hashlib.md5(raw).hexdigest()
+    # usedforsecurity=False：这里只是生成百度约定的 state 值，不用于安全目的。
+    # 不写这个参数，FIPS 模式的机器（部分企业 Windows / RHEL）会直接抛 ValueError。
+    # 该关键字 3.9 起可用，与运行时门槛一致；md5 结果不变，已发出的授权链接照常有效。
+    return hashlib.md5(raw, usedforsecurity=False).hexdigest()
 
 
 def compose_state(base_state, alias=""):

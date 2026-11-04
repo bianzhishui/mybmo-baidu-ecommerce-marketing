@@ -1,10 +1,12 @@
 """凭据与账户管理：全部用 BM_HOME 重定向到临时目录，不碰真实账户。"""
 
+import os
 import time
 
 import pytest
 
 from bmclient import config
+from bmclient.errors import CredentialError
 
 
 @pytest.fixture
@@ -24,6 +26,7 @@ def test_validate_alias_rejects(bad):
         config.validate_alias(bad)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 无 POSIX 权限位，chmod 只改只读标记")
 def test_save_and_read_roundtrip(bm_home):
     cred = config.Credential(alias="wds02", user_name="某店铺", access_token="tok-1234567890abcdef")
     path = cred.save()
@@ -34,6 +37,23 @@ def test_save_and_read_roundtrip(bm_home):
     back = config.read_account("wds02")
     assert back is not None
     assert back.user_name == "某店铺"
+
+
+def test_save_reports_locked_file(bm_home, monkeypatch):
+    """Windows 上文件被占用时 os.replace 抛 PermissionError，不能裸崩。"""
+    cred = config.Credential(alias="locked", user_name="某店铺")
+
+    def locked_replace(src, dst):
+        raise PermissionError(13, "被占用", str(dst))
+
+    monkeypatch.setattr(os, "replace", locked_replace)
+
+    with pytest.raises(CredentialError) as exc:
+        cred.save()
+
+    assert "被占用" in str(exc.value)
+    assert not (bm_home / "accounts" / "locked.json").exists(), "不能留下半截凭据"
+    assert not list((bm_home / "accounts").glob("*.json.tmp")), "临时文件必须清掉"
 
 
 def test_list_accounts_puts_default_first(bm_home):

@@ -14,4 +14,6 @@ from .config import load_credential
 from .transport import BaiduClient
 
 __all__ = ["BaiduClient", "load_credential"]
-__version__ = "1.0.0"
+
+# 这里刻意不放 __version__：版本号只在 .codebuddy-plugin/plugin.json 维护一处。
+# 之前那个 "1.0.0" 早已和专家包版本脱节，留着只会误导排查。
