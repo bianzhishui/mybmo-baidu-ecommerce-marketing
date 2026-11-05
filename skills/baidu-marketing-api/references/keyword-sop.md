@@ -154,7 +154,8 @@ uv run scripts/bmctl.py kr multi --seeds "月季,花肥,盆栽月季,促花肥,�
 uv run scripts/bmctl.py kr expand --seed "月季" --summary
 ```
 
-单个种子词最多回 300 条，这是接口上限，不是被截断。想要更多只能加种子词。
+单个种子词的既往实测曾返回 300 条，但不能由此证明返回即为全量。当前命令每次只发一次请求，
+`coverage` 会标明 `single_api_response`，`complete: null` 表示完整性未证实；想要更多覆盖可增加种子词。
 
 ---
 

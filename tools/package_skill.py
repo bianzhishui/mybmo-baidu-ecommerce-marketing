@@ -71,7 +71,7 @@ def run_official_validate(skill_dir):
     creator = Path(__import__("os").environ.get("SKILL_CREATOR_DIR", DEFAULT_SKILL_CREATOR))
     script = creator / "quick_validate.py"
     if not script.is_file():
-        print(f"  [提示] 未找到官方校验器（{script}），跳过 frontmatter 校验")
+        print(f"  [SKIP] 未找到官方校验器（{script}），frontmatter 官方校验未运行")
         return True
 
     proc = subprocess.run(

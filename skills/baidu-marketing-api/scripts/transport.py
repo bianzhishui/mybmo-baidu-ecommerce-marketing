@@ -14,8 +14,9 @@ import time
 import urllib.error
 import urllib.request
 
+import approval
 import auth
-from errors import BaiduApiError, CredentialError, DryRunRequested
+from errors import BaiduApiError, DryRunRequested
 
 SMS_BASE = "https://api.baidu.com/json/sms/service"
 FEED_BASE = "https://api.baidu.com/json/feed/v1"
@@ -39,7 +40,7 @@ class BaiduClient:
         service = normalize_service(service)
         method = normalize_method(method)
         url = build_url(service, method, product_line)
-        payload = self._payload(body or {})
+        payload = self._payload(body or {}, refresh=not self.dry_run)
 
         if self.dry_run:
             raise DryRunRequested(url, payload)
@@ -50,11 +51,12 @@ class BaiduClient:
 
     # ---------- 内部实现 ----------
 
-    def _payload(self, body):
-        try:
-            auth.ensure_valid(self.cred)
-        except CredentialError:
-            raise
+    def _payload(self, body, *, refresh=True):
+        # 预览只检查本地报文，不刷新令牌、不联网，也不写凭据文件。
+        # 输出层会固定脱敏 accessToken；过期令牌不阻碍用户先核对业务参数。
+        if refresh:
+            # 环境变量是临时覆盖：业务自动刷新仅更新内存，绝不写回磁盘。
+            auth.ensure_valid(self.cred, persist=getattr(self.cred, "persist_allowed", True))
         return {
             # 鉴权必须在 JSON body 的 header 里；放 HTTP 头会报 8002
             "header": {
@@ -74,7 +76,9 @@ class BaiduClient:
     def _send(self, url, payload, service, method):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         last_error = None
-        for attempt in range(MAX_RETRY + 1):
+        # 写请求遇到超时不能自动重发：第一次请求可能已被远端接受。
+        retries = 0 if approval.is_write_method(method) else MAX_RETRY
+        for attempt in range(retries + 1):
             req = urllib.request.Request(url, data=data, method="POST")
             req.add_header("Content-Type", "application/json;charset=utf-8")
             try:
@@ -89,36 +93,50 @@ class BaiduClient:
                     f"{service}/{method} HTTP {exc.code}",
                     service=service,
                     method=method,
+                    outcome="unknown" if exc.code >= 500 else "failed",
                 ) from exc
             except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
                 # socket.timeout 在 3.10 才等于 TimeoutError，3.9 上它是 OSError 子类，
                 # 不显式列出来，超时会被上层误判成"文件读写失败"。
                 last_error = exc
-                if attempt < MAX_RETRY:
+                if attempt < retries:
                     time.sleep(2 ** attempt)
                     continue
                 raise BaiduApiError(
-                    f"{service}/{method} 网络失败：{exc}", service=service, method=method
+                    f"{service}/{method} 网络失败，结果未知：{exc}",
+                    service=service, method=method, outcome="unknown",
                 ) from exc
-        raise BaiduApiError(str(last_error), service=service, method=method)
+        raise BaiduApiError(
+            str(last_error), service=service, method=method, outcome="unknown"
+        )
 
     def _parse(self, raw, service, method):
         try:
             result = json.loads(raw)
         except ValueError as exc:
             raise BaiduApiError(
-                f"{service}/{method} 返回非 JSON：{raw[:200]}",
-                service=service,
-                method=method,
+                f"{service}/{method} 返回非 JSON，结果未知",
+                service=service, method=method, outcome="unknown",
             ) from exc
-
-        header = result.get("header") or {}
+        if not isinstance(result, dict):
+            raise BaiduApiError(
+                f"{service}/{method} 响应顶层不是对象，结果未知",
+                service=service, method=method, outcome="unknown",
+            )
+        header = result.get("header")
+        if not isinstance(header, dict) or "status" not in header:
+            raise BaiduApiError(
+                f"{service}/{method} 响应缺少有效 header.status，结果未知",
+                service=service, method=method, outcome="unknown",
+            )
         self.last_rquota = header.get("rquota")
         status = header.get("status")
 
         if status != 0:
             failures = header.get("failures") or []
-            first = failures[0] if failures else {}
+            if not isinstance(failures, list):
+                failures = []
+            first = failures[0] if failures and isinstance(failures[0], dict) else {}
             raise BaiduApiError(
                 first.get("message") or header.get("desc") or f"status={status}",
                 code=first.get("code"),
@@ -127,7 +145,12 @@ class BaiduClient:
                 method=method,
             )
 
-        body = result.get("body") or {}
+        body = result.get("body")
+        if not isinstance(body, dict):
+            raise BaiduApiError(
+                f"{service}/{method} 成功响应的 body 不是对象，结果未知",
+                service=service, method=method, outcome="unknown",
+            )
         return body.get("data")
 
 

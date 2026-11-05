@@ -1,0 +1,26 @@
+name: offline-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.9', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --python ${{ matrix.python }} --frozen
+      - run: uv run pytest -q
+      - run: uv run ruff check .
+    env:
+      # 测试不注入任何百度凭据；分发测试自行清空 BAIDU_* 与 BM_*。
+      PYTHONDONTWRITEBYTECODE: '1'

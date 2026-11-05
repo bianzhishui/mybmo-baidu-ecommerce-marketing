@@ -1,10 +1,6 @@
-"""跨账户复制：报文信封、id 剔除、审批闸门、写入链路串联。
+"""跨账户复制：共享模板、批量与产品线预检、暂停门禁和部分成功。"""
 
-重点验证两件事：
-  1. 每级用上一级返回的新 id —— 这是跨账户复制最容易写错的地方
-  2. 没有审批 digest 就不许写
-"""
-
+import copy
 from types import SimpleNamespace
 
 import pytest
@@ -30,27 +26,18 @@ class FakeClient:
 
 
 PLAN = {
-    "source": {"user_name": "源账户", "alias": "src"},
-    "product_line": "sms",
-    "campaigns": [
-        {
-            "name": "A-计划",
-            "config": {"campaignName": "A-计划", "budget": 300, "campaignId": 111},
-            "adgroups": [
-                {
-                    "name": "A-单元",
-                    "config": {"adgroupName": "A-单元", "price": 2.5, "adgroupId": 222},
-                    "keywords": [
-                        {"word": "月季", "price": 3.0, "wordId": 333},
-                        {"word": "玫瑰花", "price": 2.0, "wordId": 334},
-                    ],
-                    "creatives": [],
-                }
-            ],
-        }
-    ],
+    "source": {"user_name": "源账户", "alias": "src"}, "product_line": "sms",
+    "campaigns": [{
+        "name": "A-计划",
+        "config": {"campaignName": "A-计划", "budget": 300, "campaignId": 111},
+        "adgroups": [{
+            "name": "A-单元",
+            "config": {"adgroupName": "A-单元", "price": 2.5, "adgroupId": 222},
+            "keywords": [{"word": "月季", "price": 3.0, "wordId": 333}],
+            "creatives": [],
+        }],
+    }],
 }
-
 CREATED = {
     "addCampaign": [{"campaignId": 9001}],
     "addAdgroup": [{"adgroupId": 8001}],
@@ -62,128 +49,123 @@ def digest_for(plan=PLAN):
     return transfer.apply(FakeClient(), plan, dry_run=True)["approval"]["digest"]
 
 
-# ---------- 报文构造 ----------
-
-
-def test_build_steps_uses_envelopes_and_strips_ids():
+def test_shared_template_strips_ids_and_uses_parent_placeholders():
     steps = transfer.build_steps(PLAN)
 
-    campaign = steps[0]
-    assert campaign["method"] == "addCampaign"
-    assert "campaignTypes" in campaign["body"]
-    assert "campaignId" not in campaign["body"]["campaignTypes"][0]
-
-    keyword = [s for s in steps if s["level"] == "keyword"][0]
-    assert "keywordTypes" in keyword["body"]
-    assert all("wordId" not in w for w in keyword["body"]["keywordTypes"])
-
-
-def test_build_steps_rejects_feed_line():
-    with pytest.raises(WriteNotPermitted) as exc:
-        transfer.build_steps(PLAN, product_line="feed")
-
-    assert "信息流" in str(exc.value)
+    campaign = steps[0]["body"]["campaignTypes"][0]
+    adgroup = steps[1]["body"]["adgroupTypes"][0]
+    keyword = steps[2]["body"]["keywordTypes"][0]
+    assert "campaignId" not in campaign
+    assert adgroup["campaignId"] == transfer.PARENT_CAMPAIGN
+    assert keyword["adgroupId"] == transfer.PARENT_ADGROUP
+    assert steps[1]["parent_step"] == steps[0]["step_id"]
 
 
-# ---------- 审批闸门 ----------
-
-
-def test_preview_carries_digest():
-    client = FakeClient()
-
-    result = transfer.apply(client, PLAN, dry_run=True)
-
-    assert result["dry_run"] is True
-    assert len(result["approval"]["digest"]) == 16
-    assert result["approval"]["items"] == 2 + 2  # 计划+单元 + 2 个词
-    assert client.calls == [], "预览不该发请求"
-
-
-def test_preview_carries_confirm_card():
+def test_preview_declares_pause_requirement_and_execution_blockers():
     result = transfer.apply(FakeClient(), PLAN, dry_run=True)
 
-    card = result["approval"]["confirm_card"]
-    assert card["type"] == "confirm"
-    action = [f["value"] for f in card["fields"] if f["label"] == "动作"][0]
-    assert "1 个计划" in action
-    assert "2 个关键词" in action
-    assert [o["value"] for o in card["options"]] == ["confirm", "cancel"]
+    assert result["required_state"] == "pause"
+    assert result["executable"] is False
+    assert result["execution_blockers"] == ["adgroup", "campaign", "keyword"]
+    assert result["approval"]["digest"]
+    assert result["approval"]["items"] == 3
 
 
-def test_execute_without_confirm_is_refused():
-    client = FakeClient(responses=CREATED)
+def test_execute_is_refused_before_any_request_without_verified_pause_fields():
+    client = FakeClient(CREATED)
 
-    with pytest.raises(ApprovalRequired) as exc:
-        transfer.apply(client, PLAN, dry_run=False)
-
-    assert "先运行一次不带 --execute 的预览" in str(exc.value)
-    assert client.calls == [], "没审批就一条都不许发"
-
-
-def test_execute_rejects_stale_digest():
-    client = FakeClient(responses=CREATED)
-    plan = {
-        **PLAN,
-        "campaigns": [{**PLAN["campaigns"][0], "name": "被改过的计划"}],
-    }
-
-    with pytest.raises(ApprovalRequired):
-        transfer.apply(client, plan, dry_run=False, confirm=digest_for())
+    with pytest.raises(WriteNotPermitted, match="默认暂停"):
+        transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
 
     assert client.calls == []
 
 
-# ---------- 真实写入链路 ----------
+def test_execute_without_confirm_is_refused_before_pause_gate():
+    client = FakeClient(CREATED)
+    with pytest.raises(ApprovalRequired):
+        transfer.apply(client, PLAN, dry_run=False)
+    assert client.calls == []
 
 
-def test_execute_chains_parent_ids():
-    client = FakeClient(responses=CREATED)
+@pytest.mark.parametrize(("level", "count"), [("keywords", 201), ("creatives", 51)])
+def test_batch_limit_is_rejected_during_preview(level, count):
+    plan = copy.deepcopy(PLAN)
+    plan["campaigns"][0]["adgroups"][0][level] = [
+        {"name": f"item-{i}"} for i in range(count)
+    ]
+    client = FakeClient()
 
-    result = transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
+    with pytest.raises(ValueError, match="单次最多写入"):
+        transfer.apply(client, plan, dry_run=True)
 
-    assert result["dry_run"] is False
-    assert result["created"]["campaigns"][0]["campaignId"] == 9001
-    assert result["created"]["adgroups"][0]["adgroupId"] == 8001
-    assert result["created"]["keywords"] == 2
-
-    assert [c["method"] for c in client.calls] == ["addCampaign", "addAdgroup", "addWord"]
-
-    adgroup_body = client.calls[1]["body"]["adgroupTypes"][0]
-    assert adgroup_body["campaignId"] == 9001, "单元必须挂到新建的计划下"
-
-    keyword_items = client.calls[2]["body"]["keywordTypes"]
-    assert all(w["adgroupId"] == 8001 for w in keyword_items), "关键词必须挂到新建的单元下"
+    assert client.calls == []
 
 
-def test_execute_refuses_to_guess_missing_id():
-    client = FakeClient(responses={"addCampaign": []})
+def test_feed_plan_cannot_fall_back_to_sms():
+    plan = copy.deepcopy(PLAN)
+    plan["product_line"] = "feed"
+    with pytest.raises(ValueError, match="产品线"):
+        transfer.apply(FakeClient(), plan, dry_run=True)
+
+
+def test_execute_rejects_stale_digest():
+    plan = copy.deepcopy(PLAN)
+    plan["campaigns"][0]["config"]["budget"] = 999
+    with pytest.raises(ApprovalRequired):
+        transfer.apply(FakeClient(), plan, dry_run=False, confirm=digest_for())
+
+
+def test_local_executor_chains_ids_and_returns_actual_keyword_id(monkeypatch):
+    """只验证本地执行器；不是百度暂停字段或响应协议的真实证据。"""
+    steps = transfer.build_steps(PLAN)
+    client = FakeClient(CREATED)
+    monkeypatch.setattr(write, "_record", lambda *args, **kwargs: None)
+
+    result = transfer._execute(client, PLAN, steps=steps, approval_digest="digest")
+
+    adgroup = client.calls[1]["body"]["adgroupTypes"][0]
+    keyword = client.calls[2]["body"]["keywordTypes"][0]
+    assert adgroup["campaignId"] == 9001
+    assert keyword["adgroupId"] == 8001
+    assert result["created"]["keywords"] == [{"name": "A-单元 / 关键词", "wordId": 7001,
+                                             "parent_step": "c0.g0"}]
+
+
+def test_partial_failure_retains_created_context(monkeypatch):
+    client = FakeClient({"addCampaign": CREATED["addCampaign"], "addAdgroup": []})
+    monkeypatch.setattr(write, "_record", lambda *args, **kwargs: None)
 
     with pytest.raises(WriteFailed) as exc:
-        transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
+        transfer._execute(client, PLAN, steps=transfer.build_steps(PLAN))
 
-    assert "未返回 campaignId" in str(exc.value)
-
-
-def test_execute_stops_before_children_when_campaign_fails():
-    client = FakeClient(responses={"addCampaign": WriteNotPermitted("权限不足")})
-
-    with pytest.raises(WriteNotPermitted):
-        transfer.apply(client, PLAN, dry_run=False, confirm=digest_for())
-
-    assert [c["method"] for c in client.calls] == ["addCampaign"]
+    assert exc.value.created["campaigns"][0]["campaignId"] == 9001
+    assert exc.value.current_step["level"] == "adgroup"
 
 
-def test_execute_audits_every_level_with_plan_digest():
-    """整份方案只在开头审批一次，但每级写入都要能追回到那次审批。"""
-    client = FakeClient(responses=CREATED)
-    digest = digest_for()
+def test_incomplete_batch_ids_stop_without_claiming_full_success(monkeypatch):
+    plan = copy.deepcopy(PLAN)
+    plan["campaigns"][0]["adgroups"][0]["keywords"].append({"word": "玫瑰花"})
+    client = FakeClient({**CREATED, "addWord": [{"wordId": 7001}]})
+    monkeypatch.setattr(write, "_record", lambda *args, **kwargs: None)
 
-    transfer.apply(client, PLAN, dry_run=False, confirm=digest)
+    with pytest.raises(WriteFailed):
+        transfer._execute(client, plan, steps=transfer.build_steps(plan))
 
-    rows = write.read_audit()
-    assert len(rows) == 3, "计划、单元、关键词各一条"
-    assert {r["approval_digest"] for r in rows} == {digest}
-    assert {r["action"] for r in rows} == {"campaign_write", "adgroup_write", "keyword_write"}
+    assert len(client.calls) == 3
+
+
+def test_clone_helper_forwards_confirm(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(transfer, "describe", lambda *args, **kwargs: copy.deepcopy(PLAN))
+
+    def fake_apply(client, plan, **kwargs):
+        seen.update(kwargs)
+        return {"source": plan["source"]}
+
+    monkeypatch.setattr(transfer, "apply", fake_apply)
+    transfer.clone(FakeClient(), FakeClient(), [], confirm="digest")
+
+    assert seen["confirm"] == "digest"
 
 
 def test_audit_isolation_does_not_touch_real_home(tmp_dir):

@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from errors import BaiduApiError
+
 # 原始字段 -> 归一化字段
 _FIELD_MAP = {
     "word": "word",
@@ -39,7 +41,14 @@ def expand(client, seed, *, limit=0):
     if not seed or not str(seed).strip():
         raise ValueError("seed 不能为空")
     data = client.call("KRService", "getKRByQuery", {"query": str(seed).strip()})
-    rows = [_normalize(it) for it in (data or [])]
+    if data is None:
+        data = []
+    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+        raise BaiduApiError(
+            "关键词接口返回结构与契约不符：data 必须是对象列表",
+            service="KRService", method="getKRByQuery", outcome="unknown",
+        )
+    rows = [_normalize(it) for it in data]
     rows.sort(key=lambda r: (r.get("pv") or 0), reverse=True)
     if limit and limit > 0:
         rows = rows[:limit]
@@ -67,12 +76,13 @@ def expand_many(client, seeds, *, limit_per_seed=0):
 def summarize(words):
     """给策略判断用的聚合指标，避免 Agent 自己算。"""
     if not words:
-        return {"total": 0}
+        return {"total": 0, "basis": "当前返回并应用 limit 后的词集合"}
     pv = sum(w.get("pv") or 0 for w in words)
-    bids = [w.get("rec_bid") for w in words if w.get("rec_bid")]
+    bids = [w.get("rec_bid") for w in words if w.get("rec_bid") is not None]
     comps = [w.get("competition") for w in words if w.get("competition") is not None]
     return {
         "total": len(words),
+        "basis": "当前返回并应用 limit 后的词集合；均价与竞争度为简单算术平均，非全量或搜索量加权",
         "pv_sum": pv,
         "pv_avg": round(pv / len(words), 1),
         "bid_avg": round(sum(bids) / len(bids), 2) if bids else None,

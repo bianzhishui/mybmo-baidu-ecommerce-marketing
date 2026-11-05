@@ -77,7 +77,7 @@ baidu-marketing-api/
 │   ├── auth-sop.md           # 鉴权交互 SOP（Agent 用）
 │   ├── keyword-sop.md        # 图片转投流关键词 SOP（Agent 用）
 │   ├── write-rules.md        # 写操作行为规范（唯一真源）
-│   └── api-index.md          # 129 个服务 / 389 个接口索引
+│   └── api-index.md          # 129 个 SDK 服务 / 389 个接口（含手写共 133/399）索引
 └── scripts/                  # 全部平铺：开放平台限两级目录，不留子包
     ├── bmctl.py              # CLI 入口（参数解析 + 输出渲染）
     ├── config.py             # 多账户凭据

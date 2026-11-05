@@ -149,6 +149,52 @@ def test_public_dict_masks_tokens():
     assert "0123456789abcdefxyz" not in str(view)
 
 
+def test_env_only_account_is_visible_and_temporary(bm_home, monkeypatch):
+    monkeypatch.setenv("BAIDU_ACCESS_TOKEN", "temporary-token")
+
+    rows = config.list_accounts()
+
+    assert len(rows) == 1
+    assert rows[0]["alias"] == "env"
+    assert rows[0]["source"] == "environment"
+    assert rows[0]["temporary"] is True
+    assert not config.account_path("env").exists()
+
+
+def test_corrupt_credential_is_not_reported_as_missing(bm_home):
+    path = config.account_path("broken")
+    path.parent.mkdir(parents=True)
+    path.write_text("{broken", encoding="utf-8")
+
+    with pytest.raises(CredentialError) as exc:
+        config.load_credential("broken")
+
+    assert str(path) in str(exc.value)
+
+
+def test_filename_alias_is_authoritative_for_save(bm_home):
+    path = config.account_path("actual")
+    path.parent.mkdir(parents=True)
+    path.write_text('{"alias":"other","access_token":"tok"}', encoding="utf-8")
+
+    cred = config.load_credential("actual")
+    cred.save()
+
+    assert config.account_path("actual").exists()
+    assert not config.account_path("other").exists()
+
+
+def test_env_overlay_cannot_be_persisted(bm_home, monkeypatch):
+    config.Credential(alias="disk", user_name="磁盘账户").save()
+    monkeypatch.setenv("BAIDU_USER_NAME", "临时账户")
+
+    cred = config.load_credential("disk")
+
+    assert cred.persist_allowed is False
+    with pytest.raises(CredentialError):
+        cred.save()
+
+
 # ---------- 数据目录解析 ----------
 #
 # 技能要能被任意 agent 加载，默认目录不做平台绑定，也不做旧路径兼容。

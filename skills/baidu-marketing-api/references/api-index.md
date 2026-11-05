@@ -1,6 +1,6 @@
 # 百度营销 API 能力索引
 
-> 来源：`baiduads-sdk` 源码反查（129 个 Service / 389 个接口），按能力域归组。
+> 来源：`baiduads-sdk` 源码反查（129 个 Service / 389 个接口），加手写部分共 133 个 Service / 399 个接口，按能力域归组。
 > 用途：透传调用（`bmctl.py call`）时查服务名与方法名；不确定参数结构时先 `--dry-run`。
 >
 > ⚠️ 当前应用仅有「工具」域权限，下表除「检索与工具」外的绝大多数接口会返回 89406。
@@ -173,7 +173,7 @@
 | `searchService` | 5 | `get_count_by_id` `get_creative_id_by_search` `get_ids_by_tabs` `get_keyword_id_by_search` `get_material_info_by_search` | json/sms |
 | `feedmaterialsearchService` | 1 | `get_material_info_by_search` | json/sms |
 | `appfeedService` | 1 | `get_js_kp_app_list` | json/feed |
-| `krService` | 5 | `get_file_path` `get_file_status` `get_kr_custom` `get_kr_file_id_by_words` `get_krby_query` | json/sms |
+| `krService` | 5 | `get_file_path` `get_file_status` `get_kr_custom` `get_kr_file_id_by_words` `get_kr_by_query` | json/sms |
 | `indexapiService` | 4 | `check_keywords` `create_task` `get_result` `refresh_access_token` | json/sms |
 | `bulkjobService` | 7 | `cancel_download` `get_all_changed_objects` `get_all_objects` `get_changed_item_id` `get_changed_scale` `get_file_path` `get_file_status` | json/sms |
 | `bulkjobfeedService` | 4 | `cancel_download` `get_all_feed_objects` `get_file_path` `get_file_status` | json/sms |

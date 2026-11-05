@@ -21,7 +21,7 @@ def test_to_dict_shape():
 
     payload = err.to_dict()
 
-    assert set(payload) == {"error", "code", "position", "service", "method", "hint"}
+    assert set(payload) == {"error", "code", "position", "service", "method", "hint", "outcome"}
     assert payload["code"] == 81020
     assert "81020" not in payload["error"]
 

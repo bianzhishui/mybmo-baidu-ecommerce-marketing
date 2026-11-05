@@ -18,7 +18,8 @@ uv run <skill>/scripts/bmctl.py accounts list
 | 结果 | 动作 |
 |---|---|
 | `total > 0` 且 `usable: true` | **直接干活**，不要提鉴权，用户不关心这个 |
-| `total: 0` | 走下面的流程 |
+| `total: 0` | 走下面的流程；先说明真实数据暂不可得，不要反复重试业务命令 |
+| `source: environment` | 临时环境凭据可直接取数；不要设为默认或写回 |
 | 报 Python 相关错误 | 是环境问题，跳「错误分支 E1」 |
 
 **不要**在不需要数据的时候主动提鉴权，那只是噪音。
@@ -55,8 +56,9 @@ uv run <skill>/scripts/bmctl.py accounts list
 
 ### 第二批（只有在需要自动换令牌时才要）
 
-> 还需要这个应用的 **SecretKey**（应用管理里能看到）。
-> 它相当于应用的密码，我只会用它去换令牌，不会写进任何文件或对话记录。
+> 还需要这个应用的 **SecretKey**（应用管理里能看到）。它用于换取和刷新令牌；
+> 成功接入后会保存在本机权限受控的 `accounts/<alias>.json`，不随技能分发。
+> 我不会在对话、终端输出或审计中复述它。
 
 **注意**：拿到 SecretKey 后不要再复述它，日志里也不要打印。
 
@@ -130,9 +132,10 @@ uv run <skill>/scripts/bmctl.py auth link --app-id <AppID> \
 > 服务已经在 8080 等着了，最长等 15 分钟。你把链接发给对应账户的持有人，对方点「同意授权」后我这边会收到，自动存成对应账户。
 > 接完告诉我，或者我这边有输出会告诉你。
 
-5. 收到回调后核对 `alias_source`：
-   - `state` → 别名生效，正常
-   - `user_id` → 百度覆盖了 state，告诉用户账户名变成了 `acct_<userId>`（见「已知不确定点」）
+5. 收到回调后核对 `status` 与 `credential_saved`：
+   - `credential_saved` → 已换令牌并落盘
+   - `code_received` → 仅收到授权码，按 `next_command` 手工换令牌
+   - `exchange_failed` → 本次链接已消费，重新运行 `auth link`，不要重放
 
 6. **验证**：跳「第 3 步」
 
@@ -188,18 +191,19 @@ uv run <skill>/scripts/bmctl.py --account <别名> kr expand --seed "测试" --l
 | `Address already in use` | 端口占用 | 换 `--port 8081` |
 | `state 不属于任何已配置应用` | 用了旧链接或 base 对不上 | 重新生成链接，别复用旧的 |
 
-**E1（运行环境问题）**：报 `command not found` 或模块导入失败 → 是环境问题，不是权限问题。先确认 `uv --version` 可用（没有就按 onboarding 的指引装），别往鉴权方向排查。只有绕过 uv 直接用低版本 python 时才会出现退出码 6。
+**E1（运行环境问题）**：报 `command not found` 或模块导入失败 → 是环境问题，不是权限问题。
+已有 Python 3.9+ 时直接运行脚本（Windows 用 `py -3`），不必强制安装 uv；否则按 onboarding 安装。
+退出码 6 表示直接运行时解释器低于 3.9。
 
 ---
 
 ## 已知不确定点：state 是否原样回传
 
-多账户靠 `state` 里的别名区分账户。百度**可能**会覆盖掉自定义 state（尚未实证）。
+百度是否原样回传自定义 state **尚未实证**。新版链接在 base 与 alias 外增加一次性 nonce，
+用于本地会话绑定和防重放，并不能证明百度一定支持自定义 state。
 
-所以：
-
-- 看到 `alias_source: "user_id"` 时，**主动告诉用户**：「百度没有回传自定义别名，账户按 userId 存成了 `acct_xxxxx`，以后用这个名字操作。」
-- 不要假装别名生效了
+若回调未带回完整 state，服务会拒绝并提示重新授权，不再退回 `acct_<userId>` 假装路由成功。
+此时可改走手工 `auth exchange --code ...`，但仍需用户从回调渠道取得一次性 code。
 
 ---
 

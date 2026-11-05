@@ -97,6 +97,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # 平铺模块：技能包上传到开放平台时只允许「根/二级/文件」两层目录，
 # 这里刻意不留 bmclient 包，避免 scripts/bmclient/xxx.py 这类三层路径。
+import oauth_sessions  # noqa: E402  # noqa: E402
+
 import approval  # noqa: E402
 import auth  # noqa: E402
 import config  # noqa: E402
@@ -384,6 +386,10 @@ def main(argv=None):
                 "error": "写入中断",
                 "message": str(exc),
                 "hint": "已创建的物料需要到百度后台手工清理，不能假装没发生。",
+                "created": exc.created,
+                "errors": exc.errors,
+                "current_step": exc.current_step,
+                "audit": exc.audit,
             },
             args.format,
         )
@@ -489,7 +495,9 @@ def _run_auth(args):
         alias = (args.alias or "").strip().lower()
         if alias:
             alias = config.validate_alias(alias)
-        state = oauthserver.compose_state(base, alias)
+        state = oauth_sessions.create(
+            base, args.app_id, alias=alias, callback=args.callback
+        )
 
         url = oauthserver.build_auth_url(
             args.app_id, callback=args.callback, scope=args.scope, state=state
@@ -519,7 +527,7 @@ def _run_auth(args):
             args.secret_key,
             args.user_id,
             user_name=args.user_name,
-            alias=args.alias or config.default_alias() or "default",
+            alias=args.alias or "default",
         )
         render.emit(cred.to_public_dict(), args.format)
         return 0
@@ -534,7 +542,11 @@ def _load_apps(args):
         if not path.exists():
             raise FileNotFoundError(f"应用清单不存在：{path}")
         data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("apps"), list):
+            raise ValueError(f"应用清单顶层必须含 apps 数组：{path}")
         for item in data.get("apps") or []:
+            if not isinstance(item, dict):
+                raise ValueError("apps 数组的每一项必须是对象")
             app_id = str(item.get("app_id") or "").strip()
             dev = str(item.get("developer_uid") or "").strip()
             base = str(item.get("base_state") or "").strip()
@@ -602,20 +614,9 @@ def _run_auth_serve(args):
         )
 
     if args.callback:
-        print("[serve] 各应用授权链接示例：", file=sys.stderr, flush=True)
-        for a in apps:
-            if not a["app_id"]:
-                continue
-            sample = oauthserver.compose_state(a["base_state"], default_alias or "<alias>")
-            print(
-                f"  {a['label']}: "
-                + oauthserver.build_auth_url(
-                    a["app_id"], callback=args.callback, scope=args.scope, state=sample
-                ),
-                file=sys.stderr, flush=True,
-            )
         print(
-            "\n[serve] 建议用 auth link --app-id ... --alias 账户A 逐个生成，避免手改 alias\n",
+            "[serve] 请为每个账户另开终端运行 auth link，生成带一次性会话的授权链接。"
+            "不要手工修改 alias 或复用旧链接。",
             file=sys.stderr, flush=True,
         )
 
@@ -625,9 +626,8 @@ def _run_auth_serve(args):
         app = record.app or {}
         app_label = app.get("label") or app.get("app_id") or "未知应用"
 
-        # 账户名优先取 state 里带的别名。若百度没有回传自定义 state
-        # （把 state 覆盖成自己的值），就退化为按 userId 命名，
-        # 避免多个账户全部落到同一个 default 上互相覆盖。
+        # alias 已经由一次性会话校验；完整 state 未回传时回调会被拒绝，
+        # 不再用 userId 猜测路由。无别名链接使用显式 --alias 或 default。
         alias = record.alias
         if alias:
             record.alias_source = "state"
@@ -650,16 +650,28 @@ def _run_auth_serve(args):
 
         if args.no_exchange:
             record.ok = True
-            record.detail = "按 --no-exchange 只收码，未换令牌"
+            record.detail = "已收到一次性授权码，尚未换取或保存凭据"
+            record.next_command = (
+                f"auth exchange --code <本次 auth_code> --app-id {app_id} "
+                "--secret-key <SecretKey> --user-id <userId> "
+                f"--user-name <账户中文名> --alias {alias}"
+            )
             return
         if not (app_id and secret):
             record.ok = True
-            record.detail = "该应用缺 app_id 或 secret_key，只收码"
+            record.detail = "已收到一次性授权码；缺 SecretKey，未换取或保存凭据"
+            record.next_command = (
+                f"auth exchange --code <本次 auth_code> --app-id {app_id} "
+                "--secret-key <SecretKey> --user-id <userId> "
+                f"--user-name <账户中文名> --alias {alias}"
+            )
             return
 
         user_id = record.user_id or args.user_id
+        record.exchange_attempted = True
         if not user_id:
             record.ok = False
+            record.status = "exchange_failed"
             record.detail = "回调未带 userId，无法换令牌"
             print(f"[serve] [失败] {record.detail}", file=sys.stderr, flush=True)
             return
@@ -679,6 +691,7 @@ def _run_auth_serve(args):
             )
         except Exception as exc:  # 单个账户失败不拖垮整个服务
             record.ok = False
+            record.status = "exchange_failed"
             record.detail = f"换令牌失败：{exc}"
             print(f"[serve] [失败] {record.detail}", file=sys.stderr, flush=True)
             return
@@ -694,6 +707,9 @@ def _run_auth_serve(args):
                 print(f"[serve] ! 取账户名失败（令牌已保存）：{exc}", file=sys.stderr, flush=True)
 
         record.ok = True
+        record.status = "credential_saved"
+        record.credential_saved = True
+        record.credential = cred.to_public_dict()
         record.detail = f"已保存为账户 {cred.alias}（{cred.user_name or '未取到中文名'}）"
         print(f"[serve] [成功] {record.detail}", file=sys.stderr, flush=True)
 
@@ -725,9 +741,9 @@ def _run_auth_serve(args):
         render.emit(payload, args.format)
         return 1
 
-    payload["next"] = "用 accounts list 查看已接入账户；多账户用 --account <alias> 指定操作对象"
+    payload["next"] = "手工收码时按各账户 next_command 换令牌；已接入账户可用 accounts list 查看"
     render.emit(payload, args.format)
-    return 0
+    return 1 if any(r.exchange_attempted and not r.ok for r in records) else 0
 
 
 # ---------- 业务 ----------
@@ -741,7 +757,11 @@ def _run_kr(args):
             render.emit(kr.summarize(words), args.format)
         else:
             render.emit(
-                {"seed": args.seed, "total": len(words), "words": words},
+                {
+                    "seed": args.seed, "total": len(words), "words": words,
+                    "coverage": "single_api_response", "complete": None,
+                    "returned_count": len(words), "limit_applied": args.limit,
+                },
                 args.format,
                 title=f"关键词拓词 · {args.seed}",
             )
@@ -755,6 +775,8 @@ def _run_kr(args):
             raise ValueError("--seeds 里没有有效种子词")
         data = kr.expand_many(client, seeds, limit_per_seed=args.limit_per_seed)
         data["summary"] = kr.summarize(data["words"])
+        data["coverage"] = "每个种子各一次 API 响应，去重合并"
+        data["complete"] = None
         render.emit(data, args.format, title="多种子词拓词")
         return 0
     return 0
@@ -811,6 +833,8 @@ def _run_transfer(args):
     if args.action == "clone":
         if args.plan_file:
             plan = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
+            if not isinstance(plan, dict):
+                raise ValueError("--plan-file 顶层必须是 JSON 对象")
         else:
             if not args.from_account:
                 raise ValueError("需要 --from-account（读源账户）或 --plan-file（从文件重放）")
@@ -901,11 +925,16 @@ def _run_call(args):
         body = json.loads(Path(args.body_file).read_text(encoding="utf-8"))
     else:
         body = _parse_body(args.body)
+    if not isinstance(body, dict):
+        raise ValueError("接口请求 body 必须是 JSON 对象")
 
     # 透传是最大的后门：一条 call 就能调 addWord 改账户。
     # 所以方法名一像写操作，就必须走和其他写命令同一套审批，并同样落审计。
     if approval.is_write_method(args.method):
-        steps = [{"service": args.service, "method": args.method, "body": body}]
+        steps = [{
+            "service": args.service, "method": args.method, "body": body,
+            "product_line": args.line,
+        }]
         alias = getattr(client.cred, "alias", "")
         if client.dry_run:
             try:
@@ -916,9 +945,11 @@ def _run_call(args):
                 )
                 raise
         digest = approval.require(getattr(args, "confirm", None), alias, steps)
-        write.audit_external(client, args.service, args.method, body, digest=digest)
-
-    data = client.call(args.service, args.method, body, product_line=args.line)
+        data = write.audit_external(
+            client, args.service, args.method, body, digest=digest, product_line=args.line
+        )
+    else:
+        data = client.call(args.service, args.method, body, product_line=args.line)
     render.emit(data, args.format)
     return 0
 

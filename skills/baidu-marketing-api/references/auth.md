@@ -101,14 +101,14 @@ uv run scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid
   --callback https://<公网地址>/oauth/callback --alias acc_a
 ```
 
-别名编进 `state`（`{base}.{alias}`），服务用 base 校验来源、用 alias 决定存到哪个账户。
-所以不需要为每个账户开不同端口，也不用反复重启。
+别名与一次性 nonce 编进 `state`（`{base}.v1.{alias-or-_}.{nonce}`），服务用 base 路由应用、
+用本地会话确认 alias。`auth link` 与 `auth serve` 通过 `$BM_HOME/oauth-sessions/` 共享短期会话；
+会话不包含 SecretKey、token 或 authCode。成功接收后 nonce 原子消费，重放返回 409。
+旧 `{base}` / `{base}.{alias}` 链接失效，需重新运行 `auth link`。
 
 `--max N` 接满即退；`--once` 等价 `--max 1`；不传 `--user-name` 时自动调 `getUserInfo` 取账户中文名。
-
-**安全边界**：默认只监听 `127.0.0.1`（公网靠隧道；容器场景可 `--host 0.0.0.0`，会告警），强制校验 state 的 base 部分，**不验签**
-（AES 需额外引入第三方库，为可选校验不值）。风险可控：换令牌还要服务端持有的 secretKey，
-且 authCode 一次性，伪造回调换不出令牌。
+只收码路径在 `accounts[].auth_code` 与 `next_command` 交付；自动成功路径输出脱敏
+`accounts[].credential`，不回显 code 或 SecretKey。
 
 隧道或反代跑在**容器 / 另一台机器**时，默认的 `127.0.0.1` 收不到转发，需加 `--host 0.0.0.0`。
 回调路径默认 `/oauth/callback`，两个应用若必须用不同路径，用 `--path` 区分。
@@ -177,20 +177,11 @@ uv run scripts/bmctl.py auth serve --apps-file ~/.baidu-marketing/apps.json --wa
 
 ### 4.6 state 回传（尚未实证）
 
-多账户路由假设百度原样回传自定义 state。这是 OAuth 通用行为（巨量引擎等平台文档明确写
-"回调时原样返回"），但百度营销平台本身没实测过——之前传的 state 就是
-`md5(appId_开发者uid)`，回调回来也是它，两种假设都成立、无法区分。
+百度是否原样回传自定义 state 尚未实测。nonce 只解决本地会话绑定、过期与重放，
+不证明百度支持自定义 state。
 
-服务做了兜底，`alias_source` 字段标明实际走哪条路：
-
-| alias_source | 含义 |
-|---|---|
-| `state` | 别名生效，账户名完全可控 |
-| `user_id` | state 被覆盖，退化为 `acct_<userId>` |
-| `fallback` | 连 userId 都没有，用了 `--alias` 或 `default` |
-
-首次真实授权建议特意验一次：用 `state=<base>.testacct` 生成链接，看回调后的 `alias_source`。
-这一步决定多账户命名策略。
+回调缺少完整 state 或会话不匹配时失败关闭，不再按 `acct_<userId>` 兜底。
+手工 `auth exchange` 不依赖 nonce，可作为备用路径。
 
 ### 4.7 验证
 

@@ -87,37 +87,36 @@ def test_runtime_json_ships_with_the_package():
     assert (ROOT / "skills" / "baidu-marketing-api" / "runtime.json").is_file()
 
 
-# ---------- 执行方式口径（uv run） ----------
+# ---------- 执行方式口径（uv 与 Python fallback） ----------
 
 
-FORBIDDEN_RUNNERS = (
-    "python3 scripts/bmctl.py",
-    "python3 <skill>/scripts/bmctl.py",
-    "py -3 scripts",
-    "py -3 <skill>",
-)
-
-
-def test_docs_only_use_uv_run():
-    """命令半改不改最危险：同一会话混用 `python3` 与 `uv run` 会走不同解释器。"""
+def test_docs_offer_uv_and_explicit_python_fallback():
+    """uv 与直接 Python 均可，但必须明确 Python 3.9+ 与 Windows 的 py -3。"""
     offenders = []
     for path in _markdown_files():
         text = path.read_text(encoding="utf-8")
-        for token in FORBIDDEN_RUNNERS:
-            if token in text:
-                offenders.append(f"{path.relative_to(ROOT)}: 仍出现 {token!r}")
         if "scripts/bmctl.py" in text and "uv run" not in text:
             offenders.append(f"{path.relative_to(ROOT)}: 提到 bmctl.py 却没有 uv run")
-
+        if "python3 <" in text and "3.9+" not in text:
+            offenders.append(f"{path.relative_to(ROOT)}: Python fallback 未标 3.9+")
     assert offenders == [], "\n".join(offenders)
+
+
+def test_api_index_counts_match_tables():
+    text = (ROOT / "skills" / "baidu-marketing-api" / "references" / "api-index.md").read_text(
+        encoding="utf-8"
+    )
+    rows = re.findall(r"^\| `[^`]+Service` \| (\d+) \| (.+) \| json/", text, re.MULTILINE | re.IGNORECASE)
+    methods = sum(len(re.findall(r"`[^`]+`", row[1])) for row in rows)
+    assert f"{len(rows)} 个 Service / {methods} 个接口" in text
 
 
 def test_skill_and_agent_document_uv_install():
     skill = (ROOT / "skills" / "baidu-marketing-api" / "SKILL.md").read_text(encoding="utf-8")
     agent = (ROOT / "agents" / "MyBMO.md").read_text(encoding="utf-8")
 
-    assert "uv --version" in skill
-    assert "astral.sh/uv" in skill, "必须给出官方安装地址，不能让用户自己搜"
+    assert "uv run" in skill
+    assert "references/onboarding.md" in skill, "安装细节应在 references，入口指向它"
     assert "uv run" in agent
     assert "astral.sh/uv" in agent
 

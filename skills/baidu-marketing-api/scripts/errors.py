@@ -52,12 +52,14 @@ ERROR_HINTS = {
 class BaiduApiError(RuntimeError):
     """百度 API 返回 status != 0，或网络层失败。"""
 
-    def __init__(self, message, *, code=None, position=None, service=None, method=None):
+    def __init__(self, message, *, code=None, position=None, service=None, method=None,
+                 outcome="failed"):
         super().__init__(message)
         self.code = code
         self.position = position
         self.service = service
         self.method = method
+        self.outcome = outcome
 
     @property
     def hint(self):
@@ -72,6 +74,7 @@ class BaiduApiError(RuntimeError):
             "service": self.service,
             "method": self.method,
             "hint": self.hint,
+            "outcome": self.outcome,
         }
 
 
@@ -97,11 +100,14 @@ class ApprovalRequired(RuntimeError):
 
 
 class WriteFailed(RuntimeError):
-    """写入已经开始但中途失败（例如建了计划却拿不到 campaignId）。
+    """写入已经开始但中途失败（例如建了计划却拿不到 campaignId）。"""
 
-    与 WriteNotPermitted 的区别：那个是「一条都没发」，这个是「发了一半」。
-    必须在错误信息里说清已在账户里留下了什么，否则用户不知道要去清理。
-    """
+    def __init__(self, message, *, created=None, errors=None, current_step=None, audit=None):
+        super().__init__(message)
+        self.created = created if created is not None else {}
+        self.errors = errors if errors is not None else []
+        self.current_step = current_step
+        self.audit = audit
 
 
 class DryRunRequested(Exception):

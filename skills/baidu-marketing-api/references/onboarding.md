@@ -1,10 +1,11 @@
 # 全新电脑上首次使用
 
-这份文档面向"刚装好技能、什么都还没配"的场景。目标是让你在 10 分钟内跑通第一次真实取数。
+这份文档面向"刚装好技能、什么都还没配"的场景。目标是完成首次真实取数；
+百度侧建应用、权限开通和人工授权所需时间不由本工具控制。
 
 ## 零、先确认你处在哪一步
 
-在技能的 `scripts/` 目录下执行（技能加载时会给出 base directory）：
+在技能根目录下执行（技能加载时会给出 base directory）：
 
 ```bash
 uv run scripts/bmctl.py accounts list
@@ -20,7 +21,8 @@ uv run scripts/bmctl.py accounts list
 
 ## 一、环境检查
 
-只要装一个东西：**uv**。Python 由它负责，依赖由它装，你不需要 `pip install` 任何包。
+已有 Python 3.9+ 时可直接运行脚本，当前无第三方运行时依赖；uv 是可选的隔离执行器，
+会按脚本内联元数据选择解释器。两种情况都不需要 `pip install`。
 
 ```bash
 uv --version
@@ -126,18 +128,19 @@ uv run scripts/bmctl.py auth serve --port 8080 \
   --app-id <AppID> \
   --developer-uid <开发者uid> \
   --callback https://xxx.trycloudflare.com/oauth/callback \
-  --scope <权限代码> \
-  --wait 900
+  --scope <权限代码> --once --wait 900
 ```
 
-服务启动后会打印一条授权链接。`state` 不传时按 `md5(appId_开发者uid)` 自动推导。
+单账户示例使用 `--once`，收到一个有效回调后退出。随后另开终端运行 `auth link`
+生成带一次性 nonce 的授权链接；链接不可复用，旧格式链接会被拒绝。`state` 保留
+base 用于应用路由，不再只使用固定的 `md5(appId_开发者uid)`。
 
 **④ 打开授权链接并同意**
 
-授权完成瞬间，百度回调打通本地服务，服务接住 `authCode` 并自动退出，输出 JSON。
-
-如果第 ③ 步同时给了 `--secret-key` `--user-id` `--user-name` `--alias`，
-**会直接换令牌并落盘**，一步到位；没给的话，把输出的 `auth_code` 拿去执行 3.3。
+授权完成且回调验证通过后，`--once` 服务接住 `authCode` 并退出，输出 JSON。
+如果第 ③ 步同时给了 `--secret-key`，**会换令牌并落盘**；未给或指定
+`--no-exchange` 时，取 `accounts[0].auth_code` 和 `next_command` 执行 3.3。
+自动成功时看 `accounts[0].credential`（脱敏）与 `credential_saved: true`。
 
 > 服务只监听本机、靠隧道暴露公网，安全设计与取舍见 `references/auth.md` 4.2 节。
 
@@ -153,7 +156,7 @@ uv run scripts/bmctl.py auth link --app-id <AppID> --developer-uid <开发者uid
 
 ### 3.3 换成令牌并落地
 
-> 如果 3.2 的 `auth serve` 已经返回了 `credential` 字段，说明已自动换好，跳过本步。
+> 如果 3.2 的 `accounts[0].credential_saved` 为 `true`，说明已自动换好，跳过本步。
 
 ```bash
 uv run scripts/bmctl.py auth exchange \
@@ -168,7 +171,9 @@ uv run scripts/bmctl.py auth exchange \
 `--alias` 是以后 `--account` 用的名字，用小写字母/数字/下划线（如 `wds02`、`axd_pet`）。
 `--user-name` 填账户中文名（如 `baidu-XX电商-XX店`），**不是 userId，也不是登录名**。
 
-成功后凭据落在 `~/.baidu-marketing/accounts/<alias>.json`（macOS/Linux 权限 600；Windows 无 POSIX 权限位，靠用户目录 ACL，默认仅本人可读）。
+成功后凭据落在 `~/.baidu-marketing/accounts/<alias>.json`，其中 `secret_key` 用于后续刷新；
+它不会随技能包分发，也不会在公开状态中明文回显。macOS/Linux 权限 600；
+Windows 无 POSIX 权限位，靠用户目录 ACL。
 
 ## 四、验证
 
@@ -226,14 +231,11 @@ uv run scripts/bmctl.py --account <别名> kr expand --seed "测试词" --limit 
 | `state 不匹配` | 授权链接不是这次 `serve` 生成的 | 用 `serve` 打印的那条链接，别复用旧的 |
 | 授权页打开报参数错误 | 缺 `scope` 或 `state` 格式不对 | 核对授权链接五个参数 |
 
-## 八、想彻底重置
+## 八、重置单个账户
 
 ```bash
-# 删掉某个账户
 uv run scripts/bmctl.py accounts remove <别名>
-
-# 全部清空（谨慎，删的是凭据不是数据）
-rm -rf ~/.baidu-marketing
 ```
 
-清空后等同于全新电脑，按第二节重新开始。
+该命令删除指定 alias 的本地凭据，不影响百度账户中的投放数据。
+如需清理整个凭据目录，先逐项备份并明确确认范围，再使用系统回收站；不要用递归强制删除。

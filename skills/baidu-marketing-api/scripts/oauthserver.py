@@ -1,37 +1,27 @@
 """内置 OAuth 回调服务。
 
 支持**一次启动、连续接收多个账户**的授权回调：
-    state = {base}.{alias}
-      base  = md5(appId_开发者uid)，32 位小写，用于校验回调确实属于本次授权
-      alias = 账户别名，服务据此把令牌落到对应的 accounts/<alias>.json
+    state = {base}.v1.{alias-or-_}.{nonce}
+      base  = md5(appId_开发者uid)，仅用于应用路由
+      nonce = 一次性随机会话标识，绑定应用、alias 与过期时间
 
-百度会把 state 原样带回，所以 alias 不需要额外通道传。
-
-安全边界（重要）：
-  - 默认只监听 127.0.0.1。容器/反向代理场景下用户可显式 `--host 0.0.0.0`，
-    此时 CLI 会打印警告；公网暴露仍建议交给隧道（cloudflared / frp）。
-  - **不做 AES 验签**：验签需要引入第三方 AES 实现，为可选校验付出这份依赖不划算。
-  - 改为强制校验 state 的 base 部分 —— 伪造者即便打通回调，也换不出令牌：
-    换令牌还要服务端持有的 secretKey，且 authCode 是一次性的。
-  - 日志不落盘，authCode 只在终端显示一次。
+百度是否原样回传自定义 state 尚未实证；缺失或不匹配时失败关闭。
+默认只监听 127.0.0.1。nonce 原子消费，重放返回 409；会话不保存凭据。
+手工收码才输出 authCode，自动换令牌失败时不回显授权码。
 """
 
 from __future__ import annotations
 
 import hashlib
-import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import oauth_sessions
+
 PLATFORM_ID = "4960345965958561794"
 AUTH_PAGE = "https://u.baidu.com/oauth/page/index"
-
-# state 用 "." 分隔 base 与 alias：base 是纯 hex 不含点，alias 也不允许点，解析无歧义
-ALIAS_SEP = "."
-_ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
-
 
 def default_state(app_id, developer_uid):
     """百度约定的默认 state：md5(appId_开发者uid) 32 位小写。"""
@@ -40,45 +30,6 @@ def default_state(app_id, developer_uid):
     # 不写这个参数，FIPS 模式的机器（部分企业 Windows / RHEL）会直接抛 ValueError。
     # 该关键字 3.9 起可用，与运行时门槛一致；md5 结果不变，已发出的授权链接照常有效。
     return hashlib.md5(raw, usedforsecurity=False).hexdigest()
-
-
-def compose_state(base_state, alias=""):
-    """把 alias 编进 state，让常驻服务能区分不同账户的回调。"""
-    if not alias:
-        return base_state
-    return f"{base_state}{ALIAS_SEP}{alias}"
-
-
-def parse_alias(state, base_state):
-    """从回调的 state 解析出 alias。
-
-    返回 (matched, alias)：
-      matched=False —— state 不属于本次服务（伪造，或复用了过期的授权链接）
-    """
-    if not base_state:
-        return True, state
-    if state == base_state:
-        return True, ""
-    prefix = base_state + ALIAS_SEP
-    if state.startswith(prefix):
-        alias = state[len(prefix):]
-        return (True, alias) if _ALIAS_RE.match(alias) else (False, "")
-    return False, ""
-
-
-def resolve_app(state, apps):
-    """按 state 前缀找到它属于哪个应用。
-
-    apps 是 [{label, app_id, developer_uid, secret_key, base_state}] 的列表。
-    多应用共用一个服务时，靠这一步区分：不同 AppID/开发者uid 的 base 不同。
-
-    返回 (app, alias)；app 为 None 表示没有任何应用匹配（伪造或过期链接）。
-    """
-    for app in apps or []:
-        matched, alias = parse_alias(state, app.get("base_state", ""))
-        if matched:
-            return app, alias
-    return None, ""
 
 
 def build_auth_url(app_id, *, callback, scope="", state="", platform_id=PLATFORM_ID):
@@ -110,16 +61,32 @@ class CallbackRecord:
         self.client_ip = client_ip
         self.ok = None
         self.detail = ""
+        self.status = "code_received"
+        self.exchange_attempted = False
+        self.credential_saved = False
+        self.credential = None
+        self.next_command = ""
 
     def as_dict(self):
-        return {
+        result = {
             "alias": self.alias,
             "alias_source": self.alias_source,
             "app": self.app.get("label") or self.app.get("app_id", ""),
             "user_id": self.user_id,
             "ok": self.ok,
+            "status": self.status,
+            "exchange_attempted": self.exchange_attempted,
+            "credential_saved": self.credential_saved,
             "detail": self.detail,
         }
+        if self.credential is not None:
+            result["credential"] = self.credential
+        elif self.status == "code_received" and not self.exchange_attempted:
+            # 仅在需要用户手工换令牌时交付一次性 code，不写持久日志。
+            result["auth_code"] = self.code
+        if self.next_command:
+            result["next_command"] = self.next_command
+        return result
 
 
 class _Collector:
@@ -181,14 +148,19 @@ def _make_handler(collector, apps, path):
             state = (qs.get("state") or [""])[0]
             user_id = (qs.get("userId") or [""])[0]
 
-            app, alias = resolve_app(state, apps)
-            if apps and app is None:
-                collector.reject(f"state 不属于任何已配置应用：{state[:48]}")
-                self._send({"code": 600011, "message": "state mismatch"}, 400)
+            try:
+                app, alias, session_key = oauth_sessions.resolve(state, apps)
+            except ValueError as exc:
+                collector.reject(str(exc))
+                self._send({"code": 600011, "message": str(exc)}, 400)
                 return
             if not code:
                 collector.reject("回调里没有 authCode")
                 self._send({"code": 600011, "message": "missing authCode"}, 400)
+                return
+            if not oauth_sessions.claim(session_key):
+                collector.reject("OAuth 会话已消费或无法锁定，请重新生成授权链接")
+                self._send({"code": 600011, "message": "session already used"}, 409)
                 return
 
             collector.add(CallbackRecord(code, state, user_id, alias, app, self.client_address[0]))
@@ -202,7 +174,7 @@ def _make_handler(collector, apps, path):
 
 
 def serve(*, port=8080, path="/oauth/callback", apps=None, timeout=300,
-          max_callbacks=0, on_record=None, host="127.0.0.1"):
+          max_callbacks=0, on_record=None, host="127.0.0.1", ready=None):
     """循环接收回调，直到超时、或收满 max_callbacks（0 表示只受超时限制）。
 
     apps: [{label, app_id, developer_uid, secret_key, base_state}]。
@@ -215,10 +187,13 @@ def serve(*, port=8080, path="/oauth/callback", apps=None, timeout=300,
     apps = apps or []
     collector = _Collector(max_callbacks=max_callbacks)
     server = ThreadingHTTPServer((host, port), _make_handler(collector, apps, path))
+    actual_port = server.server_address[1]
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     deadline = time.time() + timeout
+    if ready is not None:
+        ready(actual_port)
     processed = 0
 
     def drain():

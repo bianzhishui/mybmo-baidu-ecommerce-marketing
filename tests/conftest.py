@@ -9,6 +9,7 @@
    所以隔离放在 conftest 里做 autouse，而不是靠每个测试文件自己记得。
 """
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -21,11 +22,13 @@ REAL_BAIDU_HOME = Path.home() / ".baidu-marketing"
 
 @pytest.fixture
 def tmp_dir():
+    """隔离所有副作用。默认保留现场，显式开关才清理，避免误触删除策略。"""
     path = Path(tempfile.mkdtemp(prefix="mybmo-test-"))
-    try:
-        yield path
-    finally:
+    yield path
+    if os.getenv("MYBMO_TEST_CLEANUP") == "1":
         shutil.rmtree(path, ignore_errors=True)
+    else:
+        print(f"\n[test-artifacts] 保留隔离测试目录：{path}")
 
 
 @pytest.fixture(autouse=True)

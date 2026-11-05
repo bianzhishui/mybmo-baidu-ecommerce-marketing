@@ -36,6 +36,7 @@ LOCAL_MODULES = {
     "config",
     "errors",
     "oauthserver",
+    "oauth_sessions",
     "render",
     "svc_account",
     "svc_kr",

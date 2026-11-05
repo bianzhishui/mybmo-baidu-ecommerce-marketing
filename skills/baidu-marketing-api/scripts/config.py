@@ -39,6 +39,15 @@ DEFAULT_ALIAS_FILE = "default"
 EXPIRY_SKEW = 300
 
 _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+STORED_FIELDS = {
+    "alias", "user_name", "access_token", "app_id", "secret_key", "user_id",
+    "open_id", "refresh_token", "expires_at", "refresh_expires_at", "scope", "note",
+}
+ENV_CREDENTIAL_KEYS = (
+    "BAIDU_USER_NAME", "BAIDU_ACCESS_TOKEN", "BAIDU_APP_ID", "BAIDU_SECRET_KEY",
+    "BAIDU_OPEN_ID", "BAIDU_REFRESH_TOKEN", "BAIDU_USER_ID", "BAIDU_EXPIRES_AT",
+    "BAIDU_REFRESH_EXPIRES_AT",
+)
 
 
 @dataclass
@@ -57,6 +66,10 @@ class Credential:
     refresh_expires_at: float = 0.0
     scope: dict = field(default_factory=dict)
     note: str = ""
+    # 运行期元数据，不序列化：决定凭据能否写回以及写回哪个账户。
+    source: str = "file"
+    persist_allowed: bool = True
+    env_overrides: list = field(default_factory=list)
 
     def access_expired(self, now=None):
         now = now or time.time()
@@ -95,10 +108,17 @@ class Credential:
         }
 
     def save(self, path=None):
+        if not self.persist_allowed:
+            raise CredentialError(
+                "环境变量凭据只允许临时使用，不能写回账户文件。"
+                "需要持久化时请通过 auth exchange 重新授权。"
+            )
         target = Path(path) if path else account_path(self.alias or "default")
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".json.tmp")
-        tmp.write_text(_dumps(asdict(self)), encoding="utf-8")
+        stored = {key: value for key, value in asdict(self).items()
+                  if key in STORED_FIELDS}
+        tmp.write_text(_dumps(stored), encoding="utf-8")
         try:
             os.replace(tmp, target)  # 原子写，避免半截文件
         except PermissionError as exc:
@@ -162,6 +182,8 @@ def default_alias():
 
 def set_default_alias(alias):
     alias = validate_alias(alias)
+    if alias == "env" and not account_path(alias).exists():
+        raise ValueError("env 是环境变量临时凭据，不能设为默认账户")
     if not account_path(alias).exists():
         raise ValueError(f"账户 {alias} 不存在，无法设为默认")
     target = home_dir() / DEFAULT_ALIAS_FILE
@@ -171,22 +193,27 @@ def set_default_alias(alias):
 
 
 def list_accounts():
-    """扫描 accounts/，返回账户摘要列表。"""
+    """扫描 accounts/，返回账户摘要列表。损坏文件必须显式暴露。"""
     items = []
     directory = accounts_dir()
     if directory.is_dir():
         for path in sorted(directory.glob("*.json")):
             cred = _read_json_credential(path)
-            if cred is None:
-                continue
-            cred.alias = cred.alias or path.stem
+            cred.alias = path.stem
             items.append(cred)
+
+    if not items and os.getenv("BAIDU_ACCESS_TOKEN"):
+        items.append(_merge_env(Credential(
+            alias="env", source="environment", persist_allowed=False
+        )))
 
     current = default_alias()
     result = []
     for cred in items:
         row = cred.to_public_dict()
         row["is_default"] = cred.alias == current
+        row["source"] = cred.source
+        row["temporary"] = not cred.persist_allowed
         result.append(row)
     result.sort(key=lambda r: (not r["is_default"], r["alias"]))
     return result
@@ -215,7 +242,7 @@ def delete_account(alias):
 
 
 def read_account(alias):
-    """读取单个账户的凭据；不存在或损坏返回 None。"""
+    """读取单个账户的凭据；不存在返回 None，损坏则明确报错。"""
     path = account_path(alias)
     return _read_json_credential(path) if path.exists() else None
 
@@ -239,22 +266,35 @@ def load_credential(alias=None):
                 f"找不到账户 {resolved} 的凭据（{path}）。"
                 "用 accounts list 查看已有账户，或用 auth exchange 接入新账户"
             )
-        cred.alias = cred.alias or resolved
+        # 文件名是持久化身份的唯一依据，不能由手编 JSON 重定向到另一账户。
+        cred.alias = resolved
         return _merge_env(cred)
 
     if os.getenv("BAIDU_ACCESS_TOKEN"):
         # 纯环境变量模式：CI / 一次性调试，不落盘
-        return _merge_env(Credential(alias="env"))
+        return _merge_env(Credential(
+            alias="env", source="environment", persist_allowed=False
+        ))
 
+    existing = list(accounts_dir().glob("*.json")) if accounts_dir().is_dir() else []
+    if existing:
+        raise FileNotFoundError(
+            f"已有 {len(existing)} 个本地账户，但尚未选择默认账户。"
+            "请用 --account <alias> 指定本次账户，或执行 accounts use <alias>。"
+        )
     raise FileNotFoundError(
         f"还没有任何已授权账户（{accounts_dir()}）。"
-        "请先用 auth exchange 接入一个账户："
-        "auth exchange --code <authCode> --app-id <AppID> --secret-key <SecretKey> "
-        "--user-id <userId> --user-name <账户中文名> --alias <别名>"
+        "请先按 references/onboarding.md 接入一个账户。"
     )
 
 
 def _merge_env(cred):
+    cred.env_overrides = [key for key in ENV_CREDENTIAL_KEYS if os.environ.get(key)]
+    if cred.env_overrides:
+        cred.persist_allowed = False
+        if cred.source == "file":
+            cred.source = "file+environment"
+
     def pick(key, default=""):
         value = os.environ.get(key)
         return value if value not in (None, "") else default
@@ -282,10 +322,17 @@ def _read_json_credential(path):
 
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    known = {f for f in Credential.__dataclass_fields__}
-    return Credential(**{k: v for k, v in data.items() if k in known})
+    except (OSError, ValueError) as exc:
+        raise CredentialError(f"凭据文件不可读或 JSON 损坏：{path}（{exc}）") from exc
+    if not isinstance(data, dict):
+        raise CredentialError(f"凭据文件顶层必须是 JSON 对象：{path}")
+    known = STORED_FIELDS
+    cred = Credential(**{k: v for k, v in data.items() if k in known})
+    for key in ("expires_at", "refresh_expires_at"):
+        value = getattr(cred, key)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise CredentialError(f"凭据字段 {key} 必须是 Unix 数字时间戳：{path}")
+    return cred
 
 
 def _dumps(data):

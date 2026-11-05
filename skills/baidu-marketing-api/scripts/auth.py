@@ -11,6 +11,7 @@ accessToken 有效期 24 小时，refreshToken 30 天。refreshToken 一旦过�
 from __future__ import annotations
 
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -31,23 +32,30 @@ def _post(path, payload):
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
-        raise CredentialError(f"{path} HTTP {exc.code}: {exc.read()[:200]!r}") from exc
-    except urllib.error.URLError as exc:
-        raise CredentialError(f"{path} 网络失败：{exc.reason}") from exc
+        raise CredentialError(f"{path} HTTP {exc.code}，请核对授权参数或稍后重试") from exc
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        raise CredentialError(f"{path} 网络失败：{exc}") from exc
 
     try:
         data = json.loads(raw)
     except ValueError as exc:
-        raise CredentialError(f"{path} 返回非 JSON：{raw[:200]}") from exc
+        raise CredentialError(f"{path} 返回非 JSON，未披露响应内容") from exc
 
+    if not isinstance(data, dict):
+        raise CredentialError(f"{path} 返回的 JSON 顶层不是对象")
     if data.get("code") != 0:
         raise CredentialError(
             f"{path} 失败 code={data.get('code')} message={data.get('message')}"
         )
-    return data.get("data") or {}
+    payload = data.get("data") or {}
+    if not isinstance(payload, dict):
+        raise CredentialError(f"{path} 返回的 data 不是对象")
+    return payload
 
 
 def _apply(cred, data):
+    if not isinstance(data, dict):
+        raise CredentialError("OAuth 凭据响应必须是对象")
     now = time.time()
     cred.access_token = data.get("accessToken") or cred.access_token
     if data.get("refreshToken"):

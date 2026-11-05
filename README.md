@@ -6,7 +6,7 @@
 
 <p>
   <img alt="WorkBuddy Plugin" src="https://img.shields.io/badge/WorkBuddy-Plugin-1f6feb?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.9.2-2ea043?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.10.0-2ea043?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776ab?style=flat-square&logo=python&logoColor=white">
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
@@ -22,7 +22,7 @@
 | 载体 | WorkBuddy 插件（专家包） |
 | 插件名 | `mybmo-baidu-ecommerce-marketing` |
 | 类型 | `agent`（单个 AI 专家，非多角色团队） |
-| 版本 | `1.9.2` |
+| 版本 | `1.10.0` |
 | 分类 | `05-MarketingGrowth` |
 | 包含 | 1 个 Agent（`MyBMO`）+ 1 个 Skill（`baidu-marketing-api`） |
 | 运行时 | 由 `uv` 执行（首次自动准备环境）；依赖声明在脚本头部（PEP 723）；macOS / Linux / Windows |
@@ -266,12 +266,13 @@ mybmo-baidu-ecommerce-marketing/
 │   │   ├── auth.md                 # 鉴权技术细节与多账户
 │   │   ├── onboarding.md           # 全新电脑上手（给人看）
 │   │   ├── write-rules.md          # 写操作行为规范（唯一真源）
-│   │   └── api-index.md            # 129 服务 / 389 接口索引
+│   │   └── api-index.md            # 129 SDK 服务 / 389 接口（含手写共 133/399）索引
 │   └── scripts/                    # 全部平铺（平台上传限两级目录，不留子包）
 │       ├── bmctl.py                # CLI 薄壳
 │       ├── config.py               # 多账户凭据解析
 │       ├── auth.py                 # 令牌刷新 / 授权码换取
 │       ├── oauthserver.py          # 内置回调服务
+│       ├── oauth_sessions.py       # 一次性 OAuth 会话与防重放
 │       ├── approval.py             # 写操作审批指纹（预览 → digest → 执行）
 │       ├── transport.py            # HTTP + 鉴权 + 重试
 │       ├── errors.py               # 错误码释义
@@ -280,7 +281,6 @@ mybmo-baidu-ecommerce-marketing/
 │       ├── svc_kr.py               # 关键词拓词
 │       ├── svc_transfer.py         # 跨账户复制
 │       └── svc_write.py            # 写操作
-│           └── services/           # kr 拓词 / account 账户 / transfer 跨账户复制 / write 写操作
 ├── tests/                          # pytest：渲染 / 错误码 / 凭据 / CLI 冒烟
 ├── tools/build-zip.sh              # 一键产出专家包 + skill 包两个 zip
 ├── tools/package_skill.py          # skill 包打包（带排除规则，版本取自 plugin.json）
@@ -299,7 +299,7 @@ mybmo-baidu-ecommerce-marketing/
 
 ```bash
 uv sync                 # 创建 .venv 并装开发依赖（按 uv.lock）
-uv run pytest           # 149 个用例：渲染、错误码、凭据、写操作报文、跨账户 id 链、CLI 冒烟
+uv run pytest           # 离线测试：传输、OAuth、KR、凭据、写操作、复制与分发
 uv run ruff check .     # 规则集见 pyproject.toml
 uv run ruff format .    # 可选，会重排未格式化的文件
 ```
@@ -367,7 +367,7 @@ rsync -a --delete \
 
 打包用的是**白名单**同步（只 include 上面这几项，最后 `--exclude '*'`），所以
 `tests/`、`tools/`、`pyproject.toml`、`uv.lock`、`.python-version`、`.venv`、`.git`
-都不会进包。`skills/**` 内部额外排除了 `.venv/`、`*.so`、`*.pyd`、`*.dylib`、`*.lock`，
+都不会进包。`skills/**` 内部额外排除了 `.venv/`、`*.so`、`*.pyd`、`*.dylib`、`*.py.lock`，
 避免将来有人把虚拟环境或编译产物带到包里去。
 
 脚本还会检查包根目录：除 `README.md` 外出现任何文件即中止打包。

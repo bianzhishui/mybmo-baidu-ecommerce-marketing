@@ -30,6 +30,33 @@ from errors import BaiduApiError, WriteFailed, WriteNotPermitted
 # 跨账户时必须剔除的字段：任何以 Id 结尾的、以及账户/用户标识
 ID_SUFFIXES = ("Id", "Ids", "ID", "IDs")
 ACCOUNT_KEYS = {"userId", "userName", "accountId", "ucId", "openId", "mccId"}
+PARENT_CAMPAIGN = "$parent_campaign_id"
+PARENT_ADGROUP = "$parent_adgroup_id"
+TEMPLATE_VERSION = 1
+# 尚未取得四层物料的官方写 schema / 测试账户证据，绝不猜测暂停字段。
+VERIFIED_PAUSE_FIELDS = {}
+
+
+def pause_blockers(plan):
+    """返回当前方案中尚未验证可强制暂停的层级。"""
+    levels = set()
+    for campaign in plan.get("campaigns") or []:
+        levels.add("campaign")
+        for group in campaign.get("adgroups") or []:
+            levels.add("adgroup")
+            if group.get("keywords"):
+                levels.add("keyword")
+            if group.get("creatives"):
+                levels.add("creative")
+    return sorted(level for level in levels if level not in VERIFIED_PAUSE_FIELDS)
+
+
+def pause_blocked_error(blockers):
+    return WriteNotPermitted(
+        "跨账户复制要求新物料默认暂停，但以下层级的可写暂停字段尚未经官方协议或"
+        f"测试账户验证：{', '.join(blockers)}。已拒绝执行，未发送任何请求；"
+        "可先用 dry-run 核对模板，或提供脱敏协议证据后再启用。"
+    )
 
 
 def strip_ids(obj):
@@ -159,52 +186,80 @@ def build_steps(plan, *, product_line="sms"):
     预览与真实执行共用这一份，避免「预览看到的」和「实际发出的」不一致。
     """
     _require_writable_line(product_line)
+    if not isinstance(plan, dict) or not isinstance(plan.get("campaigns"), list):
+        raise ValueError("投放方案必须是含 campaigns 数组的 JSON 对象")
     steps = []
-    for campaign in plan.get("campaigns") or []:
+    for ci, campaign in enumerate(plan.get("campaigns") or []):
+        if not isinstance(campaign, dict) or not campaign.get("name"):
+            raise ValueError(f"第 {ci + 1} 个计划缺少 name")
+        campaign_id = f"c{ci}"
+        campaign_config = strip_ids(campaign.get("config"))
+        if VERIFIED_PAUSE_FIELDS.get("campaign"):
+            field, value = VERIFIED_PAUSE_FIELDS["campaign"]
+            campaign_config[field] = value
         steps.append(
             {
                 "level": "campaign",
+                "step_id": campaign_id,
                 "name": campaign["name"],
                 "service": "CampaignService",
                 "method": "addCampaign",
                 # apply 也要再 strip 一次：plan 可能来自外部文件，未经 describe 清洗。
                 # id 泄漏到目标账户是跨账户复制最危险的错误，必须双重保险。
-                "body": {write_ops.ENVELOPES["campaign"]: [strip_ids(campaign.get("config"))]},
+                "body": {write_ops.ENVELOPES["campaign"]: [campaign_config]},
+                "product_line": product_line,
             }
         )
-        for group in campaign.get("adgroups") or []:
+        for gi, group in enumerate(campaign.get("adgroups") or []):
+            if not isinstance(group, dict) or not group.get("name"):
+                raise ValueError(f"计划 {campaign['name']} 的第 {gi + 1} 个单元缺少 name")
+            group_id = f"{campaign_id}.g{gi}"
+            group_config = strip_ids(group.get("config"))
+            group_config["campaignId"] = PARENT_CAMPAIGN
+            if VERIFIED_PAUSE_FIELDS.get("adgroup"):
+                field, value = VERIFIED_PAUSE_FIELDS["adgroup"]
+                group_config[field] = value
             steps.append(
                 {
-                    "level": "adgroup",
-                    "name": group["name"],
-                    "parent": campaign["name"],
-                    "service": "AdgroupService",
-                    "method": "addAdgroup",
-                    "body": {write_ops.ENVELOPES["adgroup"]: [strip_ids(group.get("config"))]},
+                    "level": "adgroup", "step_id": group_id, "parent_step": campaign_id,
+                    "name": group["name"], "parent": campaign["name"],
+                    "service": "AdgroupService", "method": "addAdgroup",
+                    "body": {write_ops.ENVELOPES["adgroup"]: [group_config]},
+                    "product_line": product_line,
                 }
             )
             words = [strip_ids(w) for w in group.get("keywords") or []]
             if words:
+                write_ops._guard_count(len(words), "keyword")
+                for word in words:
+                    word["adgroupId"] = PARENT_ADGROUP
+                    if VERIFIED_PAUSE_FIELDS.get("keyword"):
+                        field, value = VERIFIED_PAUSE_FIELDS["keyword"]
+                        word[field] = value
                 steps.append(
                     {
-                        "level": "keyword",
-                        "parent": group["name"],
-                        "count": len(words),
-                        "service": "KeywordService",
-                        "method": "addWord",
+                        "level": "keyword", "step_id": f"{group_id}.k0",
+                        "parent_step": group_id, "parent": group["name"],
+                        "name": f"{group['name']} / 关键词", "count": len(words), "service": "KeywordService", "method": "addWord",
                         "body": {write_ops.ENVELOPES["keyword"]: words},
+                        "product_line": product_line,
                     }
                 )
             creatives = [strip_ids(c) for c in group.get("creatives") or []]
             if creatives:
+                write_ops._guard_count(len(creatives), "creative")
+                for creative in creatives:
+                    creative["adgroupId"] = PARENT_ADGROUP
+                    if VERIFIED_PAUSE_FIELDS.get("creative"):
+                        field, value = VERIFIED_PAUSE_FIELDS["creative"]
+                        creative[field] = value
                 steps.append(
                     {
-                        "level": "creative",
-                        "parent": group["name"],
-                        "count": len(creatives),
-                        "service": "CreativeService",
-                        "method": "addCreative",
+                        "level": "creative", "step_id": f"{group_id}.r0",
+                        "parent_step": group_id, "parent": group["name"],
+                        "name": f"{group['name']} / 创意", "count": len(creatives), "service": "CreativeService", "method": "addCreative",
                         "body": {write_ops.ENVELOPES["creative"]: creatives},
+                        "product_line": product_line,
                     }
                 )
     return steps
@@ -221,9 +276,12 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True,
     不该在中间再被问三次。
     """
     _require_writable_line(product_line)
+    if plan.get("product_line") and plan["product_line"] != product_line:
+        raise ValueError("方案文件的产品线与 --line 不一致，请核对后重试")
     steps = build_steps(plan, product_line=product_line)
     alias = getattr(client.cred, "alias", "")
     stats = summarize_plan(plan)
+    blockers = pause_blockers(plan)
 
     if dry_run:
         summary = (
@@ -237,6 +295,10 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True,
             "product_line": product_line,
             "stats": stats,
             "steps": steps,
+            "required_state": "pause",
+            "executable": not blockers,
+            "execution_blockers": blockers,
+            "inherited_fields": ["budget", "URL", "定向及其他非 ID 配置"],
             "approval": approval.describe(alias, steps, summary=summary),
             "notice": (
                 "以上为待执行报文，未发送。把 approval.confirm_card 弹给用户点选，"
@@ -245,88 +307,97 @@ def apply(client, plan, *, dry_run=True, product_line="sms", stop_on_error=True,
         }
 
     digest = approval.require(confirm, alias, steps)
-    return _execute(client, plan, stop_on_error=stop_on_error, approval_digest=digest)
+    if blockers:
+        raise pause_blocked_error(blockers)
+    return _execute(
+        client, plan, steps=steps, stop_on_error=stop_on_error, approval_digest=digest,
+        product_line=product_line,
+    )
 
 
-def _execute(client, plan, *, stop_on_error=True, approval_digest=None):
-    """串行写入：计划 → 单元 → 关键词 / 创意，逐级注入父级 id。
-
-    approval_digest 会带进每一条审计记录——整份方案只在开头审批一次，
-    但每级写入都要能追回到那次审批，否则审计里全是 null。
-    """
-    created = {"campaigns": [], "adgroups": [], "keywords": 0, "creatives": 0}
+def _execute(client, plan, *, steps, stop_on_error=True, approval_digest=None,
+             product_line="sms"):
+    """只执行共享模板；除父 ID 占位符外，不允许改变审批后的报文。"""
+    created = {"campaigns": [], "adgroups": [], "keywords": [], "creatives": []}
     errors = []
-
-    for campaign in plan.get("campaigns") or []:
-        try:
+    ids = {}
+    id_keys = {"campaign": "campaignId", "adgroup": "adgroupId",
+               "keyword": "wordId", "creative": "creativeId"}
+    current = None
+    try:
+        for step in steps:
+            current = step
+            if step.get("parent_step") and step["parent_step"] not in ids:
+                raise WriteFailed(f"父级 {step['parent_step']} 尚未创建，停止后代写入")
+            body = copy.deepcopy(step["body"])
+            parent_id = ids.get(step.get("parent_step"))
+            for item in body[write_ops.ENVELOPES[step["level"]]]:
+                if step["level"] == "adgroup":
+                    item["campaignId"] = _resolve_placeholder(item["campaignId"], parent_id)
+                elif step["level"] in ("keyword", "creative"):
+                    item["adgroupId"] = _resolve_placeholder(item["adgroupId"], parent_id)
             data = write_ops.call_raw(
-                client, "campaign", "CampaignService", "addCampaign",
-                [strip_ids(campaign.get("config"))], _preapproved=True,
-                _approval_digest=approval_digest,
+                client, step["level"], step["service"], step["method"],
+                body[write_ops.ENVELOPES[step["level"]]], _preapproved=True,
+                _approval_digest=approval_digest, product_line=product_line,
             )
-            cid = _pick_id(data, "campaignId", f"计划「{campaign['name']}」")
-            created["campaigns"].append({"name": campaign["name"], "campaignId": cid})
-
-            for group in campaign.get("adgroups") or []:
-                gcfg = strip_ids(group.get("config"))
-                gcfg["campaignId"] = cid
-                data = write_ops.call_raw(
-                    client, "adgroup", "AdgroupService", "addAdgroup", [gcfg],
-                    _preapproved=True, _approval_digest=approval_digest,
-                )
-                aid = _pick_id(data, "adgroupId", f"单元「{group['name']}」")
-                created["adgroups"].append(
-                    {"name": group["name"], "adgroupId": aid, "campaignId": cid}
-                )
-
-                words = [strip_ids(w) for w in group.get("keywords") or []]
-                if words:
-                    for word in words:
-                        word["adgroupId"] = aid
-                    write_ops.call_raw(
-                        client, "keyword", "KeywordService", "addWord", words,
-                        _preapproved=True, _approval_digest=approval_digest,
-                    )
-                    created["keywords"] += len(words)
-
-                creatives = [strip_ids(c) for c in group.get("creatives") or []]
-                if creatives:
-                    for creative in creatives:
-                        creative["adgroupId"] = aid
-                    write_ops.call_raw(
-                        client, "creative", "CreativeService", "addCreative", creatives,
-                        _preapproved=True, _approval_digest=approval_digest,
-                    )
-                    created["creatives"] += len(creatives)
-
-        except (BaiduApiError, WriteNotPermitted, WriteFailed, ValueError) as exc:
-            errors.append({"campaign": campaign.get("name"), "error": str(exc)})
-            if stop_on_error:
-                raise
+            new_ids = _pick_ids(
+                data, id_keys[step["level"]], step["name"],
+                expected=1 if step["level"] in ("campaign", "adgroup") else None,
+                requested=len(body[write_ops.ENVELOPES[step["level"]]]),
+            )
+            ids[step["step_id"]] = new_ids[0]
+            for new_id in new_ids:
+                row = {"name": step["name"], id_keys[step["level"]]: new_id}
+                if step.get("parent_step"):
+                    row["parent_step"] = step["parent_step"]
+                created[f"{step['level']}s"].append(row)
+    except (BaiduApiError, WriteNotPermitted, WriteFailed, ValueError) as exc:
+        errors.append({
+            "step_id": current.get("step_id") if current else None,
+            "level": current.get("level") if current else None,
+            "name": current.get("name") if current else None,
+            "error": str(exc),
+        })
+        failure = WriteFailed(
+            f"跨账户复制在 {current.get('step_id') if current else '未知步骤'} 中断：{exc}"
+        )
+        failure.created = created
+        failure.errors = errors
+        failure.current_step = current
+        failure.audit = str(write_ops.audit_path())
+        raise failure from exc
     return {
         "dry_run": False,
         "target": {"alias": client.cred.alias, "user_name": client.cred.user_name},
-        "created": created,
-        "errors": errors,
-        "audit": str(write_ops.audit_path()),
+        "created": created, "errors": errors, "audit": str(write_ops.audit_path()),
     }
 
 
-def _pick_id(data, key, label):
-    """从 add* 的返回里取新建物料的 id。取不到就停，绝不猜一个。
+def _resolve_placeholder(value, parent_id):
+    if value not in (PARENT_CAMPAIGN, PARENT_ADGROUP):
+        raise WriteFailed("复制模板含未声明的父 ID 字段，拒绝执行")
+    if parent_id is None:
+        raise WriteFailed("父级 ID 尚未解析，拒绝继续")
+    return parent_id
 
-    这已经不属于「被拦截」了——计划很可能真的建出来了，只是没拿到 id。
-    所以抛 WriteFailed 而不是 WriteNotPermitted，让调用方能区分
-    「一条都没发」和「发了一半」。
-    """
+
+def _pick_ids(data, key, label, *, expected=None, requested=None):
+    """返回实际响应 ID；无法确认完整结果时停止，不能按请求数冒充已创建。"""
     candidates = data if isinstance(data, list) else [data]
-    for item in candidates:
-        if isinstance(item, dict) and item.get(key):
-            return item[key]
-    raise WriteFailed(
-        f"{label} 创建后接口未返回 {key}，无法继续下级写入。"
-        f"已创建的物料需要在后台手工清理。原始返回：{str(data)[:300]}"
-    )
+    ids = [item[key] for item in candidates if isinstance(item, dict) and item.get(key)]
+    if (not ids or len(ids) != len(candidates)
+            or (expected is not None and len(ids) != expected)
+            or (requested is not None and len(ids) != requested)):
+        raise WriteFailed(
+            f"{label} 创建后接口未返回完整 {key}，无法继续。"
+            f"已创建的物料需要在后台手工清理。原始返回：{str(data)[:300]}"
+        )
+    return ids
+
+
+def _pick_id(data, key, label):
+    return _pick_ids(data, key, label, expected=1)[0]
 
 
 def _require_writable_line(product_line):
@@ -338,12 +409,14 @@ def _require_writable_line(product_line):
 
 
 def clone(source_client, target_client, campaign_ids, *,
-          prefix="", suffix="", dry_run=True, product_line="sms"):
+          prefix="", suffix="", dry_run=True, product_line="sms", confirm=None):
     """一步完成：从源账户读出方案，改名后投放到目标账户。"""
     plan = describe(source_client, campaign_ids, product_line=product_line)
     if prefix or suffix:
         plan = rename_plan(plan, prefix=prefix, suffix=suffix)
-    result = apply(target_client, plan, dry_run=dry_run, product_line=product_line)
+    result = apply(
+        target_client, plan, dry_run=dry_run, product_line=product_line, confirm=confirm
+    )
     result["source"] = plan.get("source")
     result["plan"] = plan
     return result

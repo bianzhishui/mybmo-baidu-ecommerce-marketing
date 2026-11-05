@@ -19,7 +19,9 @@
 
 ## 二、三步走
 
-**第一步 预览**：不加 `--execute` 跑一次，拿到完整报文与 `approval.digest`。
+**第一步 预览**：不加 `--execute` 跑一次，拿到脱敏报文与 `approval.digest`。
+此步不发送业务请求，也不刷新 OAuth 或写凭据。`transfer clone --from-account`
+仍需真实读取源账户；`describe --out` 是显式文件导出例外。
 
 ```bash
 uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
@@ -68,8 +70,9 @@ uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
    不能只说"已完成"。失败要说清是哪一级、哪个物料，不允许含糊成"部分成功"。
 4. **尊重批量上限**：单次 200 词 / 20 计划 / 50 单元。超了会被本地拒绝——不要试图绕开，
    拆成多批，并告诉用户分几批跑。
-5. **每次真实写入都落审计**：`~/.baidu-marketing/audit/YYYY-MM-DD.jsonl`，
-   记录账户、物料、完整报文和审批 digest。出问题可按天回溯。
+5. **真实写入记录生命周期审计**：`~/.baidu-marketing/audit/YYYY-MM-DD.jsonl`，
+   以 `request_id` 关联 `attempted` 和 `succeeded/failed/unknown`，记录 product_line、
+   最终报文、digest、响应或错误。落盘失败会警告但不阻断请求，因此不能承诺日志绝对完整。
 
 ## 五、失败怎么判断
 
@@ -83,3 +86,15 @@ uv run scripts/bmctl.py write word-add --adgroup-id 10086 \
 | 接口返回 81020 | userName 与令牌不属同一账户 | 用 `--account` 指定，别混用凭据 |
 
 失败时**把 `code` / `hint` 原样转述**，不要自己改参数重试着"试出来"。
+写请求遇到网络超时或响应无法验证时标为 `unknown`，不会自动重试；
+先查后台和审计，避免重复创建。
+
+## 六、跨账户复制的额外门禁
+
+- 预览和执行共享同一模板，父 ID 用占位符表达；digest 绑定模板、产品线及解析规则，
+  不代表预览时已经知道未来生成的父 ID。
+- 关键词超过 200、创意超过 50、产品线不一致或 schema 不合法时，在父级写入前拒绝。
+- 新物料目标状态统一为暂停；预算、URL 和其他非 ID 配置保留，必须在确认卡片中核对。
+- 四层物料的可写暂停字段未经官方 schema 或测试账户证据验证时，预览标记
+  `executable=false` 和 `execution_blockers`，真实执行在零请求下拒绝。
+- 执行失败返回已创建 ID、当前步骤、错误及审计路径；结果未知时停止，不继续创建后代。

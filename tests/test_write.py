@@ -266,7 +266,9 @@ def test_audit_written_on_real_call(bm_home):
     approved(write.add_words, 9, "月季", price=2.0)
 
     rows = write.read_audit()
-    assert len(rows) == 1
+    assert len(rows) == 2
+    assert [row["status"] for row in rows] == ["attempted", "succeeded"]
+    assert len({row["request_id"] for row in rows}) == 1
     assert rows[0]["action"] == "keyword_write"
     assert rows[0]["alias"] == "demo"
     assert rows[0]["body"]["keywordTypes"][0]["word"] == "月季"
@@ -283,7 +285,7 @@ def test_audit_file_follows_bm_home(bm_home):
 
 
 def test_audit_external_records_call_write(bm_home):
-    """call 透传写方法不走 _dispatch，但同样是真实写入，必须留痕。"""
+    """通用透传与专用写命令共用请求生命周期审计。"""
     client = FakeClient()
 
     write.audit_external(
@@ -291,6 +293,21 @@ def test_audit_external_records_call_write(bm_home):
     )
 
     rows = write.read_audit()
-    assert len(rows) == 1
+    assert [row["status"] for row in rows] == ["attempted", "succeeded"]
     assert rows[0]["action"] == "call_write"
     assert rows[0]["approval_digest"] == "abcd1234abcd1234"
+
+
+def test_audit_network_outcome_is_unknown(bm_home):
+    info, _ = preview(write.add_words, 9, "月季", price=2.0)
+    client = FakeClient(responses={"addWord": BaiduApiError("timeout", outcome="unknown")})
+
+    with pytest.raises(BaiduApiError):
+        write.add_words(client, 9, "月季", price=2.0, confirm=info["digest"])
+
+    assert [row["status"] for row in write.read_audit()] == ["attempted", "unknown"]
+
+
+def test_extra_cannot_override_core_target(bm_home):
+    with pytest.raises(ValueError, match="不能覆盖核心参数"):
+        write.add_words(FakeClient(), 9, "月季", extra={"adgroupId": 10})

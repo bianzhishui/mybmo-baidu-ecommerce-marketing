@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import approval
@@ -88,6 +89,14 @@ def add_words(client, adgroup_id, words, *, price=None, phrase_type=None, extra=
         if phrase_type is not None:
             item["phraseType"] = int(phrase_type)
         if extra:
+            protected = {"adgroupId", "word"}
+            if price is not None:
+                protected.add("price")
+            if phrase_type is not None:
+                protected.add("phraseType")
+            conflicts = protected.intersection(extra)
+            if conflicts:
+                raise ValueError(f"--extra 不能覆盖核心参数：{', '.join(sorted(conflicts))}")
             item.update(extra)
         items.append(item)
     summary = f"向单元 {adgroup_id} 添加 {len(items)} 个关键词"
@@ -132,7 +141,7 @@ def update_adgroups(client, items, *, confirm=None):
 
 
 def call_raw(client, level, service, method, items, *, confirm=None, _preapproved=False,
-             _approval_digest=None):
+             _approval_digest=None, product_line="sms"):
     """逃生通道：按信封包装后直接发，供 CLI 的 --body 透传使用。
 
     `_preapproved` / `_approval_digest` 只给 transfer 用：那边已经在整份方案上
@@ -143,12 +152,17 @@ def call_raw(client, level, service, method, items, *, confirm=None, _preapprove
     return _write(client, level, service, method, items,
                   confirm=confirm, _preapproved=_preapproved,
                   _approval_digest=_approval_digest,
-                  summary=f"透传调用 {service}/{method}")
+                  summary=f"透传调用 {service}/{method}", product_line=product_line)
 
 
-def audit_external(client, service, method, body, *, digest=None, count=None):
-    """给 `call` 透传写方法用的审计入口——它不走 _dispatch，但同样是真实写入。"""
-    _record(client, "call_write", service, method, body, count=count, digest=digest)
+def audit_external(client, service, method, body, *, digest=None, count=None,
+                   product_line="sms"):
+    """通用透传写方法与 _dispatch 共用审批、请求及终态审计。"""
+    return _dispatch(
+        client, "call_write", service, method, body, count, digest,
+        _preapproved=True, _approval_digest=digest,
+        summary=f"透传调用 {service}/{method}", product_line=product_line,
+    )
 
 
 def campaign_item(campaign_id, *, budget=None, status=None):
@@ -181,23 +195,24 @@ def adgroup_item(adgroup_id, *, price=None, status=None):
 
 
 def _write(client, level, service, method, items, *, confirm=None, _preapproved=False,
-           summary="", _approval_digest=None):
+           summary="", _approval_digest=None, product_line="sms"):
     _guard_count(len(items), level)
     body = {ENVELOPES[level]: items}
     return _dispatch(client, f"{level}_write", service, method, body, len(items),
                      confirm, _preapproved=_preapproved, summary=summary,
-                     _approval_digest=_approval_digest)
+                     _approval_digest=_approval_digest, product_line=product_line)
 
 
 def _dispatch(client, action, service, method, body, count, confirm=None, *,
-              _preapproved=False, summary="", _approval_digest=None):
+              _preapproved=False, summary="", _approval_digest=None,
+              product_line="sms"):
     """所有写操作的最后一道关卡：预览给 digest 与确认卡片，执行验 digest。
 
     顺序很重要——先算审批再落审计。审批没过就不该留下"尝试写入"的日志，
     否则审计里会混进一堆根本没发出去的记录。
     """
     alias = getattr(client.cred, "alias", "")
-    steps = [{"service": service, "method": method, "body": body}]
+    steps = [{"service": service, "method": method, "body": body, "product_line": product_line}]
 
     if getattr(client, "dry_run", False):
         try:
@@ -207,11 +222,29 @@ def _dispatch(client, action, service, method, body, count, confirm=None, *,
             raise
 
     digest = _approval_digest if _preapproved else approval.require(confirm, alias, steps)
-    _record(client, action, service, method, body, count=count, digest=digest)
+    request_id = uuid.uuid4().hex
+    _record(
+        client, action, service, method, body, count=count, digest=digest,
+        status="attempted", request_id=request_id, product_line=product_line,
+    )
     try:
-        return client.call(service, method, body)
+        data = client.call(service, method, body, product_line=product_line)
     except BaiduApiError as exc:
+        _record(
+            client, action, service, method, body, count=count, digest=digest,
+            status=exc.outcome, request_id=request_id, product_line=product_line,
+            error=str(exc),
+        )
+        if exc.outcome == "unknown":
+            exc.audit = str(audit_path())
+            exc.request_id = request_id
         raise _translate(exc) from exc
+    _record(
+        client, action, service, method, body, count=count, digest=digest,
+        status="succeeded", request_id=request_id, product_line=product_line,
+        response=data,
+    )
+    return data
 
 
 def _translate(exc):
@@ -278,8 +311,10 @@ def audit_path(when=None):
     return config.home_dir() / "audit" / f"{stamp}.jsonl"
 
 
-def _record(client, action, service, method, body, *, count=None, digest=None):
-    """真实写入前先落审计。dry-run 不记——预览不是动作。"""
+def _record(client, action, service, method, body, *, count=None, digest=None,
+            status="attempted", request_id=None, product_line="sms", response=None,
+            error=None):
+    """追加请求生命周期事件；不覆盖历史，失败与结果不明也可追踪。"""
     if getattr(client, "dry_run", False):
         return
     record = {
@@ -291,8 +326,15 @@ def _record(client, action, service, method, body, *, count=None, digest=None):
         "user_name": getattr(client.cred, "user_name", ""),
         "count": count,
         "approval_digest": digest,
+        "request_id": request_id,
+        "status": status,
+        "product_line": product_line,
         "body": body,
     }
+    if response is not None:
+        record["response"] = response
+    if error is not None:
+        record["error"] = error
     try:
         path = audit_path()
         path.parent.mkdir(parents=True, exist_ok=True)
